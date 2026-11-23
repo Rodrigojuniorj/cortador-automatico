@@ -454,12 +454,21 @@ const INGLES = /\b(the|you|are|we|what|this|that|gonna|wanna|is|it|my|god|and|or
 
 // Varias por tipo: cortes da mesma live saem juntos e repetir a pergunta cansa.
 const PERGUNTAS = {
-  risada: ['Você aguentou sem rir? 😂', 'Quem riu primeiro? 😂', 'Marca quem precisa ver isso 😂'],
-  jogada: ['Você teria feito igual? 👇', 'Nota de 0 a 10 pra essa jogada? 👇', 'Quem faz melhor que isso? 👇'],
-  ruim: ['Você teria feito diferente? 👇', 'Era evitável? 👇', 'Quem nunca passou por isso? 👇'],
-  susto: ['Você esperava essa? 👇', 'Qual seria sua reação? 👇', 'Já aconteceu com você? 👇'],
-  generico: ['Qual foi o melhor momento? Comenta aí 👇', 'O que você achou? 👇', 'Quer mais cortes assim? Comenta aí 👇'],
+  risada: ['Você aguentou sem rir?', 'Quem riu primeiro?', 'Marca quem precisa ver isso.'],
+  jogada: ['Você teria feito igual?', 'Nota de 0 a 10 pra essa jogada?', 'Quem faz melhor que isso?'],
+  ruim: ['Você teria feito diferente?', 'Era evitável?', 'Quem nunca passou por isso?'],
+  susto: ['Você esperava essa?', 'Qual seria sua reação?', 'Já aconteceu com você?'],
+  generico: ['Qual foi o melhor momento? Comenta aí.', 'O que você achou?', 'Quer mais cortes assim? Comenta aí.'],
 };
+
+// Titulo e legenda saem sem emoji (pedido de quem usa). Limpa na saida do
+// gerarCopy pra pegar tambem os modelos do jogo.js e do gerarTitulos.
+const semEmoji = (t) => String(t || '')
+  .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu, '')
+  .replace(/[ \t]+/g, ' ')
+  .replace(/ *\n */g, '\n')
+  .replace(/ +([?!.,])/g, '$1')
+  .trim();
 
 /**
  * Descricao do post, so com o que o clipe tem de verdade: a fala citada (ja
@@ -468,11 +477,11 @@ const PERGUNTAS = {
  */
 function gerarDescricao(info, citacao, tipo, semente) {
   const linhas = [];
-  if (citacao) linhas.push('"' + citacao + '" ' + umEmoji(detectarClima(citacao)));
+  if (citacao) linhas.push('"' + citacao + '"');
   if (info && info.streamer) linhas.push('Corte da live do ' + info.streamer + (info.jogo ? ' jogando ' + info.jogo : '') + '.');
   else if (info && info.jogo) linhas.push('Momento de ' + info.jogo + '.');
   linhas.push(escolherVariante(PERGUNTAS[tipo] || PERGUNTAS.generico, semente));
-  linhas.push('Segue pra não perder os próximos cortes! 🔔');
+  linhas.push('Segue pra não perder os próximos cortes!');
   return linhas.join('\n');
 }
 
@@ -497,6 +506,7 @@ function gerarCopy(corte, contextoDoVideo, sessao, nome) {
   } else {
     titulos = gerarTitulos(corte);
   }
+  titulos = titulos.map((t) => Object.assign({}, t, { texto: semEmoji(t.texto) }));
   const hashtags = gerarHashtags(corte, contextoDoVideo, sessao.id, sessao.hashtagsObrigatorias, nome);
   // a fala citada e a mesma do titulo-opcao "fala" - ja passou pelos filtros do jogo.js
   const daFala = titulos.find((t) => t.estilo === 'fala');

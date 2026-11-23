@@ -19,7 +19,7 @@ async function enviarLegenda(titulo, legenda) {
       chat_id: process.env.TELEGRAM_CHAT_ID,
       parse_mode: 'HTML',
       // <pre>: no app do Telegram um toque no bloco copia o texto inteiro
-      text: '🎬 <b>' + esc(titulo || 'Clipe novo') + '</b>\nJá está nos rascunhos do TikTok. Toque no bloco pra copiar a legenda:\n\n<pre>' + esc(legenda || titulo || '') + '</pre>',
+      text: '<b>' + esc(titulo || 'Clipe novo') + '</b>\nJá está nos rascunhos do TikTok. Toque no bloco pra copiar a legenda:\n\n<pre>' + esc(legenda || titulo || '') + '</pre>',
     }),
   });
   const j = await r.json().catch(() => ({}));
