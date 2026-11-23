@@ -53,13 +53,16 @@ function escapar(t) {
     .trim();
 }
 
+// Gancho maior que a legenda: e a primeira coisa lida, antes do audio.
+const tamanhoPadraoGancho = (opcoes) => (opcoes.posicaoGancho === 'meio' ? 86 : 74);
+
 function cabecalho(opcoes) {
   const fonte = opcoes.fonte || 'Arial Black';
   const tamanho = opcoes.tamanho || 78;
   const margemBaixo = opcoes.margemBaixo || 300;
   const margemGancho = opcoes.margemGancho || 150;
   // No meio da tela o gancho e o centro das atencoes: letra maior
-  const tamanhoGancho = opcoes.tamanhoGancho || (opcoes.posicaoGancho === 'meio' ? 74 : 62);
+  const tamanhoGancho = opcoes.tamanhoGancho || tamanhoPadraoGancho(opcoes);
   return [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -73,10 +76,11 @@ function cabecalho(opcoes) {
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
     'Style: Corte,' + fonte + ',' + tamanho + ',' + BRANCO + ',' + AMARELO + ',' + PRETO + ',&H64000000,' +
       '-1,0,0,0,100,100,1,0,1,7,4,2,70,70,' + margemBaixo + ',1',
-    // Alignment 8 = em cima, centralizado; 5 = bem no meio da tela. BorderStyle 3
-    // desenha uma tarja atras do texto: legivel por cima de qualquer imagem.
-    'Style: Gancho,' + fonte + ',' + tamanhoGancho + ',' + BRANCO + ',' + BRANCO + ',' + PRETO + ',&HC8000000,' +
-      '-1,0,0,0,100,100,0,0,3,10,0,' + (opcoes.posicaoGancho === 'meio' ? 5 : 8) + ',60,60,' +
+    // Alignment 8 = em cima, centralizado; 5 = bem no meio da tela. Branco com
+    // contorno preto grosso e sombra (BorderStyle 1), o padrao dos cortes: a
+    // tarja preta antiga lia bem mas tampava mais do video.
+    'Style: Gancho,' + fonte + ',' + tamanhoGancho + ',' + BRANCO + ',' + BRANCO + ',' + PRETO + ',&H96000000,' +
+      '-1,0,0,0,100,100,0,0,1,9,4,' + (opcoes.posicaoGancho === 'meio' ? 5 : 8) + ',60,60,' +
       (opcoes.posicaoGancho === 'meio' ? 0 : margemGancho) + ',1',
     estiloFixo(opcoes.textoFixo, fonte),
     '',
@@ -166,7 +170,7 @@ function gerarAss(palavras, offset, destino, opcoes) {
   if (semEmoji.length >= 8) {
     const duracao = Math.max(2, Math.min(8, opcoes.duracaoGancho || 4));
     // letra maior, menos letra por linha: 26 cabe no tamanho 62
-    const porLinha = Math.max(14, Math.round((26 * 62) / (opcoes.tamanhoGancho || (opcoes.posicaoGancho === 'meio' ? 74 : 62))));
+    const porLinha = Math.max(14, Math.round((26 * 62) / (opcoes.tamanhoGancho || tamanhoPadraoGancho(opcoes))));
     const texto = quebrarGancho(escapar(semEmoji).toUpperCase(), porLinha);
     linhas.push('Dialogue: 1,' + tempoAss(0) + ',' + tempoAss(duracao) + ',Gancho,,0,0,0,,{\\fad(180,320)}' + texto);
   }

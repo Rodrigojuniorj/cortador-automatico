@@ -200,7 +200,16 @@ function escolherVariante(lista, semente) {
  * @returns {string} gancho curto pronto pra queimar na tela
  */
 function gerarGanchoDeTela(corte, sessao, nome) {
-  if (corte.contextoJogo && infoDeJogo(corte, corte.contextoJogo)) return jogo.ganchoDeJogo(corte);
+  const info = corte.contextoJogo && infoDeJogo(corte, corte.contextoJogo);
+  if (info) {
+    // A fala do proprio clipe, quando curta e confiavel. Frase pronta ("OLHA O
+    // QUE ACONTECEU") se repete de corte em corte e o publico percebe.
+    const fortes = frasesFortes(corte.texto || '');
+    const r = jogo.titulosDeJogo(corte, info, { fraseForte: fortes.length ? fortes[0].texto : null });
+    const fala = citacaoDaFala(r.titulos);
+    if (fala && fala.length <= 42 && fala.split(/\s+/).length <= 8) return fala.toUpperCase();
+    return jogo.ganchoDeJogo(corte);
+  }
   const texto = String(corte.texto || '');
   const obj = objetoDoTrecho(texto);
   const numeros = extrairNumeros(texto);
@@ -486,6 +495,19 @@ function gerarDescricao(info, citacao, tipo, semente) {
 }
 
 /**
+ * A fala do clipe que da pra citar (descricao e gancho na tela), ou null.
+ * E a mesma do titulo-opcao "fala", que ja passou pelos filtros do jogo.js
+ * (palavrao, risada, fala embaralhada). Aqui sai tambem fala do jogo em ingles
+ * (NPC) e frase comprida da transcricao, que costuma vir embaralhada.
+ */
+function citacaoDaFala(titulos) {
+  const daFala = (titulos || []).find((t) => t.estilo === 'fala');
+  const c = daFala ? (daFala.texto.match(/"(.+)"/) || [])[1] : null;
+  if (!c || c.length > 60 || (c.match(INGLES) || []).length >= 2) return null;
+  return c;
+}
+
+/**
  * Enriquece um corte com a copy do post.
  * @param {object} corte
  * @param {string} contextoDoVideo  nome do arquivo original, ajuda a achar o jogo
@@ -508,12 +530,7 @@ function gerarCopy(corte, contextoDoVideo, sessao, nome) {
   }
   titulos = titulos.map((t) => Object.assign({}, t, { texto: semEmoji(t.texto) }));
   const hashtags = gerarHashtags(corte, contextoDoVideo, sessao.id, sessao.hashtagsObrigatorias, nome);
-  // a fala citada e a mesma do titulo-opcao "fala" - ja passou pelos filtros do jogo.js
-  const daFala = titulos.find((t) => t.estilo === 'fala');
-  let citacao = daFala ? (daFala.texto.match(/"(.+)"/) || [])[1] : null;
-  // na descricao a citacao fica em destaque: fala do jogo em ingles (NPC) ou
-  // frase comprida da transcricao (costuma vir embaralhada) fica de fora
-  if (citacao && (citacao.length > 60 || (citacao.match(INGLES) || []).length >= 2)) citacao = null;
+  const citacao = citacaoDaFala(titulos);
   // pelo numero do clipe: cortes seguidos da mesma live saem com perguntas diferentes
   const semente = corte.numero != null ? String(corte.numero) : String(corte.inicio || 0);
   const descricao = gerarDescricao(info, citacao, tipo, semente);

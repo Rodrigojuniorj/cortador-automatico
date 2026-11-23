@@ -236,12 +236,22 @@ function recorteEncaixado(entrada, area, largura, altura, saida) {
     'crop=' + largura + ':' + altura + ',setsar=1[' + saida + ']';
 }
 
+// Vinheta leve: escurece um pouco as bordas e puxa o olho pro centro. Sutil de
+// proposito - forte, ela apaga a webcam e o mapa do jogo.
+const VINHETA = 'vignette=angle=PI/5';
+
 /**
- * Filtro de video conforme o formato escolhido.
+ * Filtro de video conforme o formato escolhido, ja com a vinheta. Usado no
+ * clipe, na previa e no ao vivo, entao os tres saem iguais.
  * @param {string} formato  original | vertical | blur | split
  * @param {object} recorte  usado no split: { topo, baixo, proporcaoTopo }
  */
 function filtroDeFormato(formato, recorte) {
+  const f = enquadramento(formato, recorte);
+  return f ? f.replace(/\[v\]$/, ',' + VINHETA + '[v]') : f;
+}
+
+function enquadramento(formato, recorte) {
   if (formato === 'original') return null;
 
   // Foco: usa so a area que a pessoa marcou (o jogo, em geral) e enquadra
