@@ -453,8 +453,9 @@
   .selo.fraco { background: rgba(148,163,184,.12); color: #94a3b8; }
   .clipe-gancho { font-size: var(--t4); font-weight: 600; line-height: 1.35; letter-spacing: -.01em; }
   .clipe-meta { font-size: var(--t6); color: var(--texto2); font-variant-numeric: tabular-nums; display: flex; align-items: flex-start; gap: 6px; line-height: 1.45; }
-  .clipe-acoes { display: flex; gap: 7px; margin-top: auto; }
+  .clipe-acoes { display: flex; flex-wrap: wrap; gap: 7px; margin-top: auto; }
   .clipe-acoes .btn { flex: 1; }
+  body:not(.tiktok) .btn-tiktok { display: none; }
   .clipe-det { font-size: var(--t6); color: var(--texto2); line-height: 1.55; margin-top: 9px; }
   .clipe-det .bloco + .bloco { margin-top: 9px; }
   .alt {
@@ -466,6 +467,7 @@
   .alt:hover { border-color: var(--marca); color: var(--texto); }
 
   .selo.editado { background: rgba(56,189,248,.14); color: var(--azul); }
+  .selo.tiktok { background: rgba(37,244,238,.12); color: #25f4ee; }
   .selo.leva { background: rgba(74,222,128,.12); color: var(--verde); }
   .clipe.novo { border-color: var(--marca); box-shadow: 0 0 0 1px var(--marca), 0 16px 40px -20px var(--marca-brilho); }
 
@@ -3181,6 +3183,7 @@
           '<span class="selo ' + c.rotulo.cor + '"><i data-lucide="' +
             (c.rotulo.cor === 'otimo' ? 'trophy' : 'flame') + '" class="i"></i> ' + esc(c.rotulo.texto) + '</span>' +
           (c.editado ? '<span class="selo editado"><i data-lucide="pencil" class="i"></i> Editado</span>' : '') +
+          (c.enviadoTikTok ? seloTikTok(c.enviadoTikTok) : '') +
           (c.leva > 1 ? '<span class="selo leva"><i data-lucide="layers" class="i"></i> ' + c.leva + 'ª leva</span>' : '') +
           (c.manual ? '<span class="selo manual"><i data-lucide="film" class="i"></i> Trecho escolhido</span>' : '') +
           (c.origem ? '<span class="selo vivo"><i data-lucide="' + (c.origem === 'manual' ? 'hand' : 'zap') + '" class="i"></i> ' +
@@ -3194,6 +3197,7 @@
         '<div class="clipe-acoes">' +
           '<a class="btn p" href="' + src + '" download="' + esc(c.nomeArquivo) + '"><i data-lucide="download" class="i"></i> Baixar</a>' +
           '<button class="btn p" data-copiar="' + esc(c.legendaPost || c.titulo) + '" title="Título e hashtags, pronto pra colar no post"><i data-lucide="copy" class="i"></i> Legenda</button>' +
+          '<button class="btn p btn-tiktok" title="Manda pro TikTok como rascunho: no app você cola a legenda e publica"><i data-lucide="send" class="i"></i> TikTok</button>' +
           editar +
         '</div>' +
 
@@ -3217,8 +3221,67 @@
 
     const btnEditar = div.querySelector('.abrir-editor');
     if (btnEditar) btnEditar.addEventListener('click', () => abrirEditor(c, pastaDoClipe || (projetoAtual && projetoAtual.pasta)));
+    const btnTikTok = div.querySelector('.btn-tiktok');
+    btnTikTok.addEventListener('click', () => enviarTikTok(btnTikTok, c));
     icones(div);
     return div;
+  }
+
+  // ------------------------------------------------------------ envio pro TikTok
+  // So aparece no PC que tem as chaves no .env. O clipe vai como rascunho pra
+  // caixa de entrada do app; a pessoa cola a legenda la e publica.
+  let tiktok = { ativo: false, conectado: false };
+  const lerTikTok = () => fetch('/api/tiktok').then((x) => x.json()).then((e) => {
+    tiktok = e;
+    document.body.classList.toggle('tiktok', !!e.ativo);
+    return e;
+  });
+  lerTikTok().catch(() => {});
+
+  async function conectarTikTok(janela) {
+    const l = await postJson('/api/tiktok/entrar');
+    if (!l.url) { janela.close(); throw new Error(l.erro || 'Não consegui abrir o login do TikTok.'); }
+    janela.location = l.url;
+    // espera o TikTok voltar (o servidor fecha o login sozinho em 10 min)
+    for (;;) {
+      await new Promise((ok) => setTimeout(ok, 2000));
+      const e = await lerTikTok();
+      if (e.conectado && !e.entrando) return;
+      if (!e.entrando) throw new Error(e.erro || 'O login do TikTok não terminou.');
+    }
+  }
+
+  const seloTikTok = (quando) => '<span class="selo tiktok" title="Mandado pro TikTok em ' + esc(dataCurta(quando)) + '">' +
+    '<i data-lucide="check-check" class="i"></i> No TikTok</span>';
+
+  async function enviarTikTok(botao, c) {
+    if (botao.disabled) return;
+    if (c.enviadoTikTok && !confirm('Esse clipe já foi pro TikTok (' + dataCurta(c.enviadoTikTok) + '). Mandar de novo?')) return;
+    const antes = botao.innerHTML;
+    botao.disabled = true;
+    // a janela do login abre ja no clique: depois de um await o navegador bloquearia
+    const janela = tiktok.conectado ? null : window.open('', '_blank');
+    try {
+      if (janela) { botao.textContent = 'Conectando...'; await conectarTikTok(janela); }
+      botao.textContent = 'Enviando...';
+      // titulo e legenda vao pro Telegram (se configurado): o rascunho do TikTok nao aceita texto
+      const r = await postJson('/api/tiktok/enviar', { arquivo: c.arquivo, titulo: c.titulo, legenda: c.legendaPost || c.titulo });
+      if (r.precisaLogin) {
+        tiktok.conectado = false;
+        throw new Error('O login do TikTok venceu. Clique em TikTok de novo pra conectar.');
+      }
+      if (!r.ok) throw new Error(r.erro || 'Não consegui mandar pro TikTok.');
+      botao.textContent = r.telegram ? 'TikTok + Telegram!' : 'No app do TikTok!';
+      // selo na hora, sem recarregar o projeto (o servidor ja gravou no clipe)
+      const selos = botao.closest('.clipe').querySelector('.clipe-corpo > div');
+      if (!c.enviadoTikTok && selos) { selos.insertAdjacentHTML('beforeend', seloTikTok(r.enviadoTikTok)); icones(selos); }
+      c.enviadoTikTok = r.enviadoTikTok;
+      if (r.avisoTelegram) erro('O vídeo foi pro TikTok, mas a legenda não chegou no Telegram: ' + r.avisoTelegram);
+    } catch (e) {
+      botao.textContent = 'Não foi';
+      erro(e.message);
+    }
+    setTimeout(() => { botao.innerHTML = antes; botao.disabled = false; icones(botao); }, 3000);
   }
 
   // ------------------------------------------------------------ projetos

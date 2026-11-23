@@ -9,6 +9,9 @@ const path = require('path');
 const { spawn, execFile } = require('child_process');
 const { URL } = require('url');
 
+// .env opcional (fora do git): hoje so guarda as chaves do envio pro TikTok
+try { process.loadEnvFile(path.join(__dirname, '..', '.env')); } catch (_) {}
+
 // Onde gravar (disco/pasta) fica no pastas.js: muda na hora, pelos Ajustes.
 const pastas = require('./pastas');
 const desempenho = require('./desempenho');
@@ -20,6 +23,8 @@ const baixador = require('./baixar');
 const projetos = require('./projetos');
 const sessoes = require('./sessoes');
 const aovivo = require('./aovivo');
+const tiktok = require('./tiktok');
+const telegram = require('./telegram');
 
 // Um erro solto em algum canto (um ffmpeg que sumiu, uma conexao que caiu)
 // nao pode derrubar o programa inteiro: a janela ficaria dando "Failed to fetch"
@@ -348,6 +353,25 @@ function dentroDaSaida(caminho) {
   const rel = path.relative(path.resolve(pastas.saida()), resolvido);
   if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
   return resolvido;
+}
+
+/**
+ * Grava no clipe (sessao.json e relatorio.json da pasta dele) quando ele foi
+ * pro TikTok, pro cartao mostrar o selo mesmo depois de fechar o programa.
+ */
+function marcarEnviadoTikTok(arquivo) {
+  const quando = new Date().toISOString();
+  for (const nome of ['sessao.json', 'relatorio.json']) {
+    const f = path.join(path.dirname(arquivo), nome);
+    try {
+      const dados = JSON.parse(fs.readFileSync(f, 'utf8'));
+      const c = (dados.clipes || []).find((x) => (x.arquivo && path.resolve(x.arquivo) === arquivo) || x.nomeArquivo === path.basename(arquivo));
+      if (!c) continue;
+      c.enviadoTikTok = quando;
+      fs.writeFileSync(f, JSON.stringify(dados, null, 2), 'utf8');
+    } catch (_) { /* projeto sem esse arquivo: o selo so nao fica gravado */ }
+  }
+  return quando;
 }
 
 function novoTrabalho() {
@@ -876,6 +900,28 @@ const servidor = http.createServer(async (req, res) => {
 
     if (rota === '/api/saida') {
       return json(res, 200, { pasta: pastas.saida() });
+    }
+
+    // ---------------------------------------------------------- TikTok (so com as chaves no .env)
+    if (rota === '/api/tiktok') {
+      return json(res, 200, tiktok.estado());
+    }
+    if (rota === '/api/tiktok/entrar' && req.method === 'POST') {
+      try { return json(res, 200, { url: tiktok.entrar() }); }
+      catch (e) { return json(res, 400, { erro: e.message }); }
+    }
+    if (rota === '/api/tiktok/enviar' && req.method === 'POST') {
+      const corpo = await lerCorpo(req);
+      const arquivo = dentroDaSaida(corpo.arquivo);
+      if (!arquivo || !fs.existsSync(arquivo)) return json(res, 404, { erro: 'Não achei esse clipe na pasta de cortes.' });
+      let feito;
+      try { feito = await tiktok.enviar(arquivo); }
+      catch (e) { return json(res, e.precisaLogin ? 401 : 502, { erro: e.message, precisaLogin: !!e.precisaLogin }); }
+      feito.enviadoTikTok = marcarEnviadoTikTok(arquivo);
+      // O video ja esta no TikTok: falha do Telegram so vira aviso, nao erro
+      try { feito.telegram = await telegram.enviarLegenda(corpo.titulo, corpo.legenda); }
+      catch (e) { feito.avisoTelegram = e.message; }
+      return json(res, 200, feito);
     }
 
     // ---------------------------------------------------------- modo leve / total

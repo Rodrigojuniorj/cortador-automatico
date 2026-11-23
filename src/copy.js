@@ -444,8 +444,36 @@ function gerarHashtags(corte, contextoDoVideo, sessao, obrigatorias, nome) {
 // ---------------------------------------------------------------- legenda
 
 /** Texto pronto pra colar no campo de descricao do TikTok/Reels. */
-function montarLegenda(titulo, hashtags) {
-  return titulo + '\n\n' + hashtags.map((h) => '#' + h).join(' ');
+function montarLegenda(titulo, hashtags, descricao) {
+  return titulo + '\n\n' + (descricao ? descricao + '\n\n' : '') + hashtags.map((h) => '#' + h).join(' ');
+}
+
+// Pergunta no fim puxa comentario, e comentario pesa na distribuicao.
+// Chaveada pelo tipo de momento que o jogo.js detecta.
+const INGLES = /\b(the|you|are|we|what|this|that|gonna|wanna|is|it|my|god|and|or|yeah|hey)\b/gi;
+
+// Varias por tipo: cortes da mesma live saem juntos e repetir a pergunta cansa.
+const PERGUNTAS = {
+  risada: ['Você aguentou sem rir? 😂', 'Quem riu primeiro? 😂', 'Marca quem precisa ver isso 😂'],
+  jogada: ['Você teria feito igual? 👇', 'Nota de 0 a 10 pra essa jogada? 👇', 'Quem faz melhor que isso? 👇'],
+  ruim: ['Você teria feito diferente? 👇', 'Era evitável? 👇', 'Quem nunca passou por isso? 👇'],
+  susto: ['Você esperava essa? 👇', 'Qual seria sua reação? 👇', 'Já aconteceu com você? 👇'],
+  generico: ['Qual foi o melhor momento? Comenta aí 👇', 'O que você achou? 👇', 'Quer mais cortes assim? Comenta aí 👇'],
+};
+
+/**
+ * Descricao do post, so com o que o clipe tem de verdade: a fala citada (ja
+ * filtrada pelo jogo.js - sem palavrao, sem fala embaralhada), quem e o jogo,
+ * uma pergunta e a chamada pra seguir. Nada de resumo inventado.
+ */
+function gerarDescricao(info, citacao, tipo, semente) {
+  const linhas = [];
+  if (citacao) linhas.push('"' + citacao + '" ' + umEmoji(detectarClima(citacao)));
+  if (info && info.streamer) linhas.push('Corte da live do ' + info.streamer + (info.jogo ? ' jogando ' + info.jogo : '') + '.');
+  else if (info && info.jogo) linhas.push('Momento de ' + info.jogo + '.');
+  linhas.push(escolherVariante(PERGUNTAS[tipo] || PERGUNTAS.generico, semente));
+  linhas.push('Segue pra não perder os próximos cortes! 🔔');
+  return linhas.join('\n');
 }
 
 /**
@@ -459,20 +487,32 @@ function gerarCopy(corte, contextoDoVideo, sessao, nome) {
   sessao = sessao || {};
   const info = infoDeJogo(corte, contextoDoVideo);
   let titulos;
+  let tipo = 'generico';
   if (info) {
     const fortes = frasesFortes(corte.texto || '');
-    titulos = jogo.titulosDeJogo(corte, info, { fraseForte: fortes.length ? fortes[0].texto : null, evitar: contextoDoVideo && contextoDoVideo.evitar }).titulos;
+    const r = jogo.titulosDeJogo(corte, info, { fraseForte: fortes.length ? fortes[0].texto : null, evitar: contextoDoVideo && contextoDoVideo.evitar });
+    titulos = r.titulos;
+    tipo = r.tipo;
     if (!titulos.length) titulos = gerarTitulos(corte);
   } else {
     titulos = gerarTitulos(corte);
   }
   const hashtags = gerarHashtags(corte, contextoDoVideo, sessao.id, sessao.hashtagsObrigatorias, nome);
+  // a fala citada e a mesma do titulo-opcao "fala" - ja passou pelos filtros do jogo.js
+  const daFala = titulos.find((t) => t.estilo === 'fala');
+  let citacao = daFala ? (daFala.texto.match(/"(.+)"/) || [])[1] : null;
+  // na descricao a citacao fica em destaque: fala do jogo em ingles (NPC) ou
+  // frase comprida da transcricao (costuma vir embaralhada) fica de fora
+  if (citacao && (citacao.length > 60 || (citacao.match(INGLES) || []).length >= 2)) citacao = null;
+  // pelo numero do clipe: cortes seguidos da mesma live saem com perguntas diferentes
+  const semente = corte.numero != null ? String(corte.numero) : String(corte.inicio || 0);
+  const descricao = gerarDescricao(info, citacao, tipo, semente);
   return {
     titulos,
     titulo: titulos[0].texto,
     hashtags,
-    textoPost: null,
-    legenda: montarLegenda(titulos[0].texto, hashtags),
+    textoPost: descricao,
+    legenda: montarLegenda(titulos[0].texto, hashtags, descricao),
   };
 }
 
