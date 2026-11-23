@@ -456,6 +456,7 @@
   .clipe-acoes { display: flex; flex-wrap: wrap; gap: 7px; margin-top: auto; }
   .clipe-acoes .btn { flex: 1; }
   body:not(.tiktok) .btn-tiktok { display: none; }
+  body:not(.youtube) .btn-youtube { display: none; }
   .clipe-det { font-size: var(--t6); color: var(--texto2); line-height: 1.55; margin-top: 9px; }
   .clipe-det .bloco + .bloco { margin-top: 9px; }
   .alt {
@@ -468,6 +469,7 @@
 
   .selo.editado { background: rgba(56,189,248,.14); color: var(--azul); }
   .selo.tiktok { background: rgba(37,244,238,.12); color: #25f4ee; }
+  .selo.youtube { background: rgba(255,59,59,.14); color: #ff6b6b; text-decoration: none; }
   .selo.leva { background: rgba(74,222,128,.12); color: var(--verde); }
   .clipe.novo { border-color: var(--marca); box-shadow: 0 0 0 1px var(--marca), 0 16px 40px -20px var(--marca-brilho); }
 
@@ -3183,7 +3185,8 @@
           '<span class="selo ' + c.rotulo.cor + '"><i data-lucide="' +
             (c.rotulo.cor === 'otimo' ? 'trophy' : 'flame') + '" class="i"></i> ' + esc(c.rotulo.texto) + '</span>' +
           (c.editado ? '<span class="selo editado"><i data-lucide="pencil" class="i"></i> Editado</span>' : '') +
-          (c.enviadoTikTok ? seloTikTok(c.enviadoTikTok) : '') +
+          (c.enviadoTikTok ? seloRede('tiktok', c) : '') +
+          (c.enviadoYouTube ? seloRede('youtube', c) : '') +
           (c.leva > 1 ? '<span class="selo leva"><i data-lucide="layers" class="i"></i> ' + c.leva + 'ª leva</span>' : '') +
           (c.manual ? '<span class="selo manual"><i data-lucide="film" class="i"></i> Trecho escolhido</span>' : '') +
           (c.origem ? '<span class="selo vivo"><i data-lucide="' + (c.origem === 'manual' ? 'hand' : 'zap') + '" class="i"></i> ' +
@@ -3197,7 +3200,8 @@
         '<div class="clipe-acoes">' +
           '<a class="btn p" href="' + src + '" download="' + esc(c.nomeArquivo) + '"><i data-lucide="download" class="i"></i> Baixar</a>' +
           '<button class="btn p" data-copiar="' + esc(c.legendaPost || c.titulo) + '" title="Título e hashtags, pronto pra colar no post"><i data-lucide="copy" class="i"></i> Legenda</button>' +
-          '<button class="btn p btn-tiktok" title="Manda pro TikTok como rascunho: no app você cola a legenda e publica"><i data-lucide="send" class="i"></i> TikTok</button>' +
+          '<button class="btn p btn-tiktok" data-rede="tiktok" title="Manda pro TikTok como rascunho: no app você cola a legenda e publica"><i data-lucide="send" class="i"></i> TikTok</button>' +
+          '<button class="btn p btn-youtube" data-rede="youtube" title="Posta no YouTube como Short, já com título, descrição e hashtags"><i data-lucide="square-play" class="i"></i> YouTube</button>' +
           editar +
         '</div>' +
 
@@ -3221,62 +3225,79 @@
 
     const btnEditar = div.querySelector('.abrir-editor');
     if (btnEditar) btnEditar.addEventListener('click', () => abrirEditor(c, pastaDoClipe || (projetoAtual && projetoAtual.pasta)));
-    const btnTikTok = div.querySelector('.btn-tiktok');
-    btnTikTok.addEventListener('click', () => enviarTikTok(btnTikTok, c));
+    div.querySelectorAll('[data-rede]').forEach((b) => b.addEventListener('click', () => enviarPara(b.dataset.rede, b, c)));
     icones(div);
     return div;
   }
 
-  // ------------------------------------------------------------ envio pro TikTok
-  // So aparece no PC que tem as chaves no .env. O clipe vai como rascunho pra
-  // caixa de entrada do app; a pessoa cola a legenda la e publica.
-  let tiktok = { ativo: false, conectado: false };
-  const lerTikTok = () => fetch('/api/tiktok').then((x) => x.json()).then((e) => {
-    tiktok = e;
-    document.body.classList.toggle('tiktok', !!e.ativo);
+  // ------------------------------------------------------------ envio pro TikTok / YouTube
+  // So aparece no PC que tem as chaves no .env. TikTok: rascunho na caixa de
+  // entrada do app (a legenda vai pelo Telegram). YouTube: posta direto, com texto.
+  const REDES = {
+    tiktok: { nome: 'TikTok', campo: 'enviadoTikTok', feito: (r) => (r.telegram ? 'TikTok + Telegram!' : 'No app do TikTok!') },
+    youtube: { nome: 'YouTube', campo: 'enviadoYouTube', feito: (r) => (r.privacidade === 'private' ? 'Subiu (privado)' : 'No YouTube!') },
+  };
+  const estadoRede = { tiktok: {}, youtube: {} };
+  const lerRede = (rede) => fetch('/api/' + rede).then((x) => x.json()).then((e) => {
+    estadoRede[rede] = e;
+    document.body.classList.toggle(rede, !!e.ativo);
     return e;
   });
-  lerTikTok().catch(() => {});
+  Object.keys(REDES).forEach((rede) => lerRede(rede).catch(() => {}));
 
-  async function conectarTikTok(janela) {
-    const l = await postJson('/api/tiktok/entrar');
-    if (!l.url) { janela.close(); throw new Error(l.erro || 'Não consegui abrir o login do TikTok.'); }
+  async function conectarRede(rede, janela) {
+    const nome = REDES[rede].nome;
+    const l = await postJson('/api/' + rede + '/entrar');
+    if (!l.url) { janela.close(); throw new Error(l.erro || 'Não consegui abrir o login do ' + nome + '.'); }
     janela.location = l.url;
-    // espera o TikTok voltar (o servidor fecha o login sozinho em 10 min)
-    for (;;) {
+    // espera a pessoa autorizar na outra aba (10 min no maximo)
+    for (let i = 0; i < 300; i++) {
       await new Promise((ok) => setTimeout(ok, 2000));
-      const e = await lerTikTok();
+      const e = await lerRede(rede);
       if (e.conectado && !e.entrando) return;
-      if (!e.entrando) throw new Error(e.erro || 'O login do TikTok não terminou.');
+      if (!e.entrando) throw new Error(e.erro || 'O login do ' + nome + ' não terminou.');
     }
+    throw new Error('O login do ' + nome + ' demorou demais. Clique de novo pra tentar.');
   }
 
-  const seloTikTok = (quando) => '<span class="selo tiktok" title="Mandado pro TikTok em ' + esc(dataCurta(quando)) + '">' +
-    '<i data-lucide="check-check" class="i"></i> No TikTok</span>';
+  function seloRede(rede, c) {
+    const nome = REDES[rede].nome;
+    const dica = esc('Mandado pro ' + nome + ' em ' + dataCurta(c[REDES[rede].campo]));
+    const dentro = '<i data-lucide="check-check" class="i"></i> No ' + nome;
+    // no YouTube o selo abre o video
+    return rede === 'youtube' && c.youtubeUrl
+      ? '<a class="selo youtube" href="' + esc(c.youtubeUrl) + '" target="_blank" rel="noopener" title="' + dica + '">' + dentro + '</a>'
+      : '<span class="selo ' + rede + '" title="' + dica + '">' + dentro + '</span>';
+  }
 
-  async function enviarTikTok(botao, c) {
+  async function enviarPara(rede, botao, c) {
+    const R = REDES[rede];
     if (botao.disabled) return;
-    if (c.enviadoTikTok && !confirm('Esse clipe já foi pro TikTok (' + dataCurta(c.enviadoTikTok) + '). Mandar de novo?')) return;
+    if (c[R.campo] && !confirm('Esse clipe já foi pro ' + R.nome + ' (' + dataCurta(c[R.campo]) + '). Mandar de novo?')) return;
     const antes = botao.innerHTML;
     botao.disabled = true;
     // a janela do login abre ja no clique: depois de um await o navegador bloquearia
-    const janela = tiktok.conectado ? null : window.open('', '_blank');
+    const janela = estadoRede[rede].conectado ? null : window.open('', '_blank');
     try {
-      if (janela) { botao.textContent = 'Conectando...'; await conectarTikTok(janela); }
+      if (janela) { botao.textContent = 'Conectando...'; await conectarRede(rede, janela); }
       botao.textContent = 'Enviando...';
-      // titulo e legenda vao pro Telegram (se configurado): o rascunho do TikTok nao aceita texto
-      const r = await postJson('/api/tiktok/enviar', { arquivo: c.arquivo, titulo: c.titulo, legenda: c.legendaPost || c.titulo });
+      const r = await postJson('/api/' + rede + '/enviar', {
+        arquivo: c.arquivo, titulo: c.titulo, legenda: c.legendaPost || c.titulo, hashtags: c.hashtags || [],
+      });
       if (r.precisaLogin) {
-        tiktok.conectado = false;
-        throw new Error('O login do TikTok venceu. Clique em TikTok de novo pra conectar.');
+        estadoRede[rede].conectado = false;
+        throw new Error('O login do ' + R.nome + ' venceu. Clique em ' + R.nome + ' de novo pra conectar.');
       }
-      if (!r.ok) throw new Error(r.erro || 'Não consegui mandar pro TikTok.');
-      botao.textContent = r.telegram ? 'TikTok + Telegram!' : 'No app do TikTok!';
+      if (!r.ok) throw new Error(r.erro || 'Não consegui mandar pro ' + R.nome + '.');
+      botao.textContent = R.feito(r);
       // selo na hora, sem recarregar o projeto (o servidor ja gravou no clipe)
+      const primeira = !c[R.campo];
+      c[R.campo] = r[R.campo];
+      if (r.url) c.youtubeUrl = r.url;
       const selos = botao.closest('.clipe').querySelector('.clipe-corpo > div');
-      if (!c.enviadoTikTok && selos) { selos.insertAdjacentHTML('beforeend', seloTikTok(r.enviadoTikTok)); icones(selos); }
-      c.enviadoTikTok = r.enviadoTikTok;
+      if (primeira && selos) { selos.insertAdjacentHTML('beforeend', seloRede(rede, c)); icones(selos); }
       if (r.avisoTelegram) erro('O vídeo foi pro TikTok, mas a legenda não chegou no Telegram: ' + r.avisoTelegram);
+      if (r.privacidade === 'private') erro('O vídeo subiu no YouTube, mas ficou PRIVADO: o YouTube trava assim até o projeto do Google passar na auditoria da API. Link: ' + r.url);
     } catch (e) {
       botao.textContent = 'Não foi';
       erro(e.message);

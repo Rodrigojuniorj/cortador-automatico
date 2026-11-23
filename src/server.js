@@ -25,6 +25,7 @@ const sessoes = require('./sessoes');
 const aovivo = require('./aovivo');
 const tiktok = require('./tiktok');
 const telegram = require('./telegram');
+const youtube = require('./youtube');
 
 // Um erro solto em algum canto (um ffmpeg que sumiu, uma conexao que caiu)
 // nao pode derrubar o programa inteiro: a janela ficaria dando "Failed to fetch"
@@ -357,21 +358,20 @@ function dentroDaSaida(caminho) {
 
 /**
  * Grava no clipe (sessao.json e relatorio.json da pasta dele) quando ele foi
- * pro TikTok, pro cartao mostrar o selo mesmo depois de fechar o programa.
+ * pro TikTok/YouTube, pro cartao mostrar o selo mesmo depois de fechar o programa.
  */
-function marcarEnviadoTikTok(arquivo) {
-  const quando = new Date().toISOString();
+function marcarEnviado(arquivo, campos) {
   for (const nome of ['sessao.json', 'relatorio.json']) {
     const f = path.join(path.dirname(arquivo), nome);
     try {
       const dados = JSON.parse(fs.readFileSync(f, 'utf8'));
       const c = (dados.clipes || []).find((x) => (x.arquivo && path.resolve(x.arquivo) === arquivo) || x.nomeArquivo === path.basename(arquivo));
       if (!c) continue;
-      c.enviadoTikTok = quando;
+      Object.assign(c, campos);
       fs.writeFileSync(f, JSON.stringify(dados, null, 2), 'utf8');
     } catch (_) { /* projeto sem esse arquivo: o selo so nao fica gravado */ }
   }
-  return quando;
+  return campos;
 }
 
 function novoTrabalho() {
@@ -418,6 +418,15 @@ const servidor = http.createServer(async (req, res) => {
       }
       res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(paginaLogin(true));
+    }
+
+    // Volta do login do Google: vem do navegador, antes da trava de senha (o
+    // cookie de localhost nao vai pra 127.0.0.1). O state aleatorio e a protecao.
+    if (rota === '/youtube/callback') {
+      const r = await youtube.callback(url.searchParams);
+      res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end('<!doctype html><meta charset="utf-8"><title>YouTube</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:48px auto;padding:0 16px">' +
+        '<h2>' + (r.ok ? 'YouTube conectado' : 'Não conectou') + '</h2><p>' + r.mensagem.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch])) + '</p>');
     }
 
     if (!estaLogado(req)) {
@@ -917,10 +926,34 @@ const servidor = http.createServer(async (req, res) => {
       let feito;
       try { feito = await tiktok.enviar(arquivo); }
       catch (e) { return json(res, e.precisaLogin ? 401 : 502, { erro: e.message, precisaLogin: !!e.precisaLogin }); }
-      feito.enviadoTikTok = marcarEnviadoTikTok(arquivo);
+      feito.enviadoTikTok = marcarEnviado(arquivo, { enviadoTikTok: new Date().toISOString() }).enviadoTikTok;
       // O video ja esta no TikTok: falha do Telegram so vira aviso, nao erro
       try { feito.telegram = await telegram.enviarLegenda(corpo.titulo, corpo.legenda); }
       catch (e) { feito.avisoTelegram = e.message; }
+      return json(res, 200, feito);
+    }
+
+    // ---------------------------------------------------------- YouTube (so com as chaves no .env)
+    if (rota === '/api/youtube') {
+      return json(res, 200, youtube.estado());
+    }
+    if (rota === '/api/youtube/entrar' && req.method === 'POST') {
+      try { return json(res, 200, { url: youtube.entrar(servidor.address().port) }); }
+      catch (e) { return json(res, 400, { erro: e.message }); }
+    }
+    if (rota === '/api/youtube/enviar' && req.method === 'POST') {
+      const corpo = await lerCorpo(req);
+      const arquivo = dentroDaSaida(corpo.arquivo);
+      if (!arquivo || !fs.existsSync(arquivo)) return json(res, 404, { erro: 'Não achei esse clipe na pasta de cortes.' });
+      // a legenda do post comeca com o titulo: no YouTube o titulo vai separado
+      const titulo = String(corpo.titulo || '');
+      let descricao = String(corpo.legenda || '');
+      if (titulo && descricao.startsWith(titulo)) descricao = descricao.slice(titulo.length).trim();
+      let feito;
+      try { feito = await youtube.enviar(arquivo, { titulo, descricao, tags: corpo.hashtags }); }
+      catch (e) { return json(res, e.precisaLogin ? 401 : 502, { erro: e.message, precisaLogin: !!e.precisaLogin }); }
+      marcarEnviado(arquivo, { enviadoYouTube: new Date().toISOString(), youtubeUrl: feito.url });
+      feito.enviadoYouTube = new Date().toISOString();
       return json(res, 200, feito);
     }
 
