@@ -12,6 +12,8 @@ const { combinar: combinarIntencao } = require('./intencao');
 const MIN_DUR = 18;
 const MAX_DUR = 62;
 const DUR_IDEAL = 30;
+const DUR_MIN_LANCE = 7;   // corte montado em volta do lance: abaixo disso nao da tempo de reagir
+const NOTA_MINIMA = 54;    // abaixo disso o rotulo ja e "Baixo"
 
 // ---------------------------------------------------------------- lexicos pt-br
 
@@ -124,13 +126,15 @@ const GANCHO_GTA = [
   /\bescapei\b/i, /\bconsegui (fugir|escapar)\b/i, /\bbugou\b/i, /\bque bug\b/i,
 ];
 
+// Sem "gta", "carro", "mapa", "moto": aparecem em qualquer minuto de live de GTA
+// e davam ponto pra todo trecho, sem separar o bom do comum.
 const EMOCAO_GTA = [
-  /\bgta\b/i, /\bvice city\b/i, /\bleonida\b/i, /\bpol[ií]cia\b/i, /\bviatura\b/i,
+  /\bvice city\b/i, /\bleonida\b/i, /\bpol[ií]cia\b/i, /\bviatura\b/i,
   /\bhelic[oó]ptero\b/i, /\bestrelas?\b/i, /\bprocurad[oa]\b/i, /\bpersegui[cç][aã]o\b/i,
   /\bfuga\b/i, /\bassalto\b/i, /\broubo\b/i, /\bbanco\b/i, /\btiro(teio)?\b/i,
-  /\bacidente\b/i, /\bjacar[eé]\b/i, /\bbug\b/i, /\bglitch\b/i, /\bmapa\b/i,
-  /\blucia\b/i, /\bjason\b/i, /\bcarro\b/i, /\bmoto\b/i, /\bavi[aã]o\b/i, /\blancha\b/i,
-  /\bkkk+\b/i, /\bkkkkw*\b/i, /\bhahaw*\b/i, /\bmano do c[eé]u\b/i, /\bque isso\b/i,
+  /\bacidente\b/i, /\bjacar[eé]\b/i, /\bbug\b/i, /\bglitch\b/i,
+  /\blucia\b/i, /\bjason\b/i, /\bavi[aã]o\b/i, /\blancha\b/i,
+  /\bkkk+\b/i, /\bhaha\w*\b/i, /\bmano do c[eé]u\b/i, /\bque isso\b/i,
 ];
 
 const LEXICO_DA_SESSAO = {
@@ -222,6 +226,53 @@ function montarFrases(palavras) {
     }
   }
   return frases;
+}
+
+/**
+ * Janela por tempo em volta do lance (live de jogo). Nao corta palavra no meio:
+ * se o comeco cai dentro de uma palavra, volta pro inicio dela; se o fim cai
+ * dentro de uma, espera ela acabar. Depois estende o fim enquanto o som ainda
+ * esta no alto (a risada e o grito que o Whisper nao escreve), ate +2 s.
+ */
+function janelaDoLance(palavras, energia, inicio, fim) {
+  inicio = Math.max(0, inicio);
+  const naBorda = (t) => palavras.find((w) => w.inicio < t && w.fim > t);
+  const pIni = naBorda(inicio);
+  if (pIni) inicio = Math.max(0, pIni.inicio - 0.1);
+  const pFim = naBorda(fim);
+  if (pFim) fim = pFim.fim + 0.15;
+
+  if (energia && energia.length) {
+    const mediana = medianaDaEnergia(energia);
+    const limite = Math.min(energia.length - 1, fim + 2);
+    while (fim < limite && energia[Math.floor(fim)] >= mediana * 1.3) fim = Math.min(limite, fim + 0.5);
+  }
+
+  const dentro = palavras.filter((w) => w.inicio >= inicio - 0.05 && w.fim <= fim + 0.05);
+  const frases = dentro.length ? montarFrases(dentro) : [{
+    inicio, fim, texto: '', palavras: [], terminaCompleta: true, pausaDepois: 2,
+  }];
+  return {
+    inicio,
+    fim,
+    frases,
+    texto: normalizarTexto(frases.map((f) => f.texto).join(' ')),
+  };
+}
+
+/** Volume tipico da live inteira (mediana do RMS por segundo), calculado uma vez. */
+function medianaDaEnergia(energia) {
+  if (energia._mediana == null) {
+    const ord = energia.slice().sort((a, b) => a - b);
+    Object.defineProperty(energia, '_mediana', { value: ord[Math.floor(ord.length / 2)] || 0, enumerable: false });
+  }
+  return energia._mediana;
+}
+
+/** Se o primeiro 1,5 s do corte esta abaixo do volume tipico da live. */
+function comecoBaixo(energia, inicio) {
+  if (!energia || !energia.length) return true;
+  return energiaDaJanela(energia, inicio, inicio + 1.5).media < medianaDaEnergia(energia);
 }
 
 // ---------------------------------------------------------------- energia do audio
@@ -333,7 +384,9 @@ function pontuar(janela, energia, perfil, sessao) {
   if (atrasoInicial <= 0.35) {
     nota += 4;
     motivos.push({ fator: 'Entra falando na hora', pontos: 4 });
-  } else if (atrasoInicial > 1.2) {
+  } else if (atrasoInicial > 1.2 && (perfil === 'fala' || comecoBaixo(energia, janela.inicio))) {
+    // em live de jogo o corte abre antes do lance: sem fala mas com o jogo
+    // fazendo barulho nao e silencio - so pune se o som tambem estiver baixo
     nota -= 10;
     motivos.push({ fator: 'Comeca com silencio', pontos: -10 });
   }
@@ -463,7 +516,15 @@ function pontuar(janela, energia, perfil, sessao) {
   // o mais curto e cobra caro do que passa de 50s.
   const dur = janela.fim - janela.inicio;
   let pDur;
-  if (dur <= 40) pDur = Math.round(Math.max(0, 6 - Math.abs(dur - 30) * 0.22));
+  if (perfil !== 'fala') {
+    // Live de jogo: o lance + a reacao cabem em 12-25 s. Nos canais de corte o
+    // tempo medio assistido fica em ~10-17 s, entao clipe comprido e abandonado
+    // antes do fim. Passou de 35 s perde nota de verdade.
+    if (dur < 12) pDur = Math.round(6 - (12 - dur));
+    else if (dur <= 25) pDur = 6;
+    else if (dur <= 35) pDur = Math.round(6 - (dur - 25) * 0.6);
+    else pDur = Math.round(Math.max(-14, -(dur - 35) * 0.8));
+  } else if (dur <= 40) pDur = Math.round(Math.max(0, 6 - Math.abs(dur - 30) * 0.22));
   else pDur = Math.round(Math.max(-8, 6 - (dur - 40) * 0.55));
 
   if (pDur !== 0) {
@@ -494,8 +555,10 @@ function pontuar(janela, energia, perfil, sessao) {
     motivos.push({ fator: 'Comeca no meio do assunto', pontos: -18 });
   }
 
-  // Primeira frase curta e sem gancho: quase sempre e sobra da fala anterior
-  if (!ganchoNaPrimeira && primeira.split(/\s+/).length <= 6) {
+  // Primeira frase curta e sem gancho: quase sempre e sobra da fala anterior.
+  // Em live de jogo nao: la a melhor abertura e justamente a exclamacao curta
+  // ("nossa mano", "caraca") em cima do lance.
+  if (perfil === 'fala' && !ganchoNaPrimeira && primeira.split(/\s+/).length <= 6) {
     nota -= 7;
     motivos.push({ fator: 'Abre com frase solta', pontos: -7 });
   }
@@ -611,20 +674,28 @@ function bonusDeMomento(janela, momentos, perfil) {
 
   // forca 1.9 a 3.0 vira 8 a 18 pontos
   let base = Math.min(15, 5 + (principal.forca - 2.3) * 11);
+  let nomeDoFator = principal.tipo === 'voz+cena' ? 'Tem o momento (voz e imagem)' : 'Tem pico de reacao';
 
-  // posicao: o ponto doce e entre 25% e 65% do corte
-  if (posicao >= 0.25 && posicao <= 0.65) base *= 1.25;
-  else if (posicao < 0.12) base *= 0.55;
-  else if (posicao > 0.85) base *= 0.5;
+  if (perfil === 'fala') {
+    // fala: o ponto doce e entre 25% e 65% do corte (o argumento precisa de contexto)
+    if (posicao >= 0.25 && posicao <= 0.65) base *= 1.25;
+    else if (posicao < 0.12) base *= 0.55;
+    else if (posicao > 0.85) base *= 0.5;
+  } else {
+    // Live de jogo: o lance tem que aparecer nos 3 primeiros segundos. Nos dados
+    // do canal, 30-50% deslizam logo de cara e quem fica sai antes do segundo
+    // 10-17 - lance no meio do corte ninguem chega a ver.
+    const ateOLance = principal.tempo - janela.inicio;
+    if (ateOLance <= 3) { base *= 1.35; nomeDoFator = 'Lance nos 3 primeiros segundos'; }
+    else if (ateOLance > 6) base *= 0.55;
+  }
 
   ganho += base * peso;
-  extras.push({
-    fator: principal.tipo === 'voz+cena' ? 'Tem o momento (voz e imagem)' : 'Tem pico de reacao',
-    pontos: Math.round(base * peso),
-  });
+  extras.push({ fator: nomeDoFator, pontos: Math.round(base * peso) });
 
-  // Suspense antes da explosao: e o que segura o dedo ate a revelacao
-  if (principal.temSuspense) {
+  // Suspense antes da explosao: segura o dedo numa explicacao falada. Em live de
+  // jogo atrasa o lance, entao so vale pro perfil de fala.
+  if (perfil === 'fala' && principal.temSuspense) {
     const p = 6 * peso;
     ganho += p;
     extras.push({ fator: 'Suspense antes da revelacao', pontos: Math.round(p) });
@@ -776,10 +847,29 @@ function encontrarCortes(transcricao, energia, opcoes) {
     }
   }
 
-  // Janelas ancoradas nos picos. Numa abertura de carta, o corte certo nao
-  // comeca numa frase bonita: comeca no suspense e termina depois da reacao.
-  // Aqui a gente monta o corte em volta do acontecimento.
-  for (const m of momentos.slice(0, 40)) {
+  // Live de jogo: o corte nasce do lance, nao da frase. Abre 1-3,5 s antes dele
+  // e fecha 3-7 s depois (mais o resto da reacao que ainda esta no alto). Sem
+  // o piso de duracao: um lance de 9 s com a reacao inteira vale mais que 30 s
+  // com o lance perdido no meio.
+  if (perfil !== 'fala') {
+    for (const m of momentos.slice(0, 40)) {
+      for (const antes of [1, 2, 3.5]) {
+        for (const depois of [3, 5, 7]) {
+          const j = janelaDoLance(palavras, energia, m.tempo - antes, m.tempo + depois);
+          const dur = j.fim - j.inicio;
+          if (dur < DUR_MIN_LANCE || dur > maxDur) continue;
+          const chave = 't' + j.inicio.toFixed(1) + ':' + j.fim.toFixed(1);
+          if (jaVi.has(chave)) continue;
+          jaVi.add(chave);
+          janelas.push(j);
+        }
+      }
+    }
+  }
+
+  // Janelas ancoradas nos picos, pelo perfil de fala: o corte comeca no
+  // suspense, numa frase inteira, e termina depois da reacao.
+  for (const m of (perfil === 'fala' ? momentos.slice(0, 40) : [])) {
     for (const antes of [6, 12, 20]) {
       const alvoInicio = m.tempo - antes;
       let i = 0;
@@ -808,9 +898,12 @@ function encontrarCortes(transcricao, energia, opcoes) {
   }
   candidatas.sort((a, b) => b.nota - a.nota);
 
-  // Supressao de sobreposicao: dois cortes nao podem ser quase o mesmo trecho
+  // Supressao de sobreposicao: dois cortes nao podem ser quase o mesmo trecho.
+  // Abaixo da nota minima nao sai (so se for o unico): clipe fraco no canal
+  // derruba a media que o algoritmo usa pra testar os proximos.
   const escolhidos = [];
   for (const j of candidatas) {
+    if (j.nota < NOTA_MINIMA && escolhidos.length) continue;
     const conflita = escolhidos.some((e) => {
       const sobrepoe = Math.min(e.fim, j.fim) - Math.max(e.inicio, j.inicio);
       if (sobrepoe <= 0) return false;
@@ -838,6 +931,7 @@ function encontrarCortes(transcricao, energia, opcoes) {
     motivos: j.motivos,
     texto: j.texto,
     palavras: j.frases.reduce((acc, f) => acc.concat(f.palavras), []),
+    momentoEm: j.momentoEm != null ? j.momentoEm : null,
   }));
 }
 

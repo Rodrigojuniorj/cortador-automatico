@@ -11,7 +11,8 @@ const media = require('./media');
 const legenda = require('./legenda');
 const momentos = require('./momentos');
 const { encontrarCortes, diagnosticarCortes, corteDoTrecho, achatarPalavras, mmss } = require('./score');
-const { gerarCopy, gerarGanchoDeTela } = require('./copy');
+const { gerarCopy, gerarGanchoDeTela, infoDeJogo } = require('./copy');
+const ia = require('./ia');
 const { interpretar } = require('./intencao');
 const sessoes = require('./sessoes');
 
@@ -344,7 +345,7 @@ async function processar(opcoes, avisar) {
   let trecho = conferirTrecho(opcoes.trecho, info.duracao, opcoes.modoTrecho);
   // Video do tamanho de um corte nao tem o que escolher: vira um corte so,
   // do comeco ao fim, e ganha gancho como qualquer outro.
-  if (!trecho && info.duracao <= (opcoes.maxDur || 62) + 5) {
+  if (!trecho && info.duracao <= (opcoes.maxDur || 35) + 5) {
     trecho = { inicio: 0, fim: Math.round(info.duracao * 100) / 100 };
     opcoes.modoTrecho = 'exato';
     avisar({ tipo: 'aviso', msg: 'O vídeo já tem o tamanho de um corte: vai sair inteiro, num corte só.' });
@@ -363,8 +364,8 @@ async function processar(opcoes, avisar) {
       : 'Procurando os melhores momentos...');
     cortes = encontrarCortes(transcricao, energia, {
       quantidade: opcoes.quantidade || 8,
-      minDur: opcoes.minDur || 28,
-      maxDur: opcoes.maxDur || 62,
+      minDur: opcoes.minDur || 15,
+      maxDur: opcoes.maxDur || 35,
       momentos: picos,
       perfil: perfilFinal,
       intencao: intencao,
@@ -376,7 +377,7 @@ async function processar(opcoes, avisar) {
   if (!cortes.length) {
     throw new Error(trecho
       ? 'Entre ' + mmss(trecho.inicio) + ' e ' + mmss(trecho.fim) + ' não coube nenhum corte de ' +
-        (opcoes.minDur || 28) + ' a ' + (opcoes.maxDur || 62) + 's que comece e termine numa frase inteira. ' +
+        (opcoes.minDur || 15) + ' a ' + (opcoes.maxDur || 35) + 's que comece e termine numa frase inteira. ' +
         'Aumente o trecho, escolha cortes curtos ou peça um corte só com o trecho inteiro.'
       : 'Nao consegui montar nenhum corte. O video pode ter pouca fala.');
   }
@@ -394,7 +395,34 @@ async function processar(opcoes, avisar) {
 
   cortes = ordenarCortes(cortes, opcoes.ordem);
 
+  // Live de jogo: comeco parado (menu, carregando) ou escuro e o primeiro
+  // motivo pra deslizar. Adianta o comeco ate 2 s, sem passar do lance.
+  if (!exato && perfilFinal !== 'fala') {
+    emitir(66, 'analise', 'Conferindo o primeiro segundo de cada corte...');
+    for (const c of cortes) {
+      const ateOLance = c.momentoEm != null ? c.momentoEm - c.inicio - 0.5 : 2;
+      const limite = Math.floor(Math.max(0, Math.min(2, ateOLance, c.duracao - 7)) * 2) / 2;
+      if (limite < 0.5) continue;
+      try {
+        const pulo = await media.adiantarComecoParado(video, c.inicio, limite);
+        if (pulo > 0) {
+          c.inicio = Math.round((c.inicio + pulo) * 100) / 100;
+          c.duracao = Math.round((c.fim - c.inicio) * 10) / 10;
+          c.inicioTexto = mmss(c.inicio);
+          c.palavras = (c.palavras || []).filter((p) => p.fim > c.inicio);
+        }
+      } catch (_) { /* medir e melhoria: se falhar, o corte sai como estava */ }
+    }
+  }
+
   titular(cortes, video, sessao);
+  // O gancho da IA entende melhor a cena sabendo o que vinha antes do corte
+  if (ia.ativo()) {
+    const todas = achatarPalavras(transcricao);
+    for (const c of cortes) {
+      c.contextoAntes = todas.filter((p) => p.inicio >= c.inicio - 20 && p.fim <= c.inicio).map((p) => p.texto).join(' ');
+    }
+  }
   avisar({ tipo: 'cortes', cortes: cortes.map(semPalavras) });
 
   // ---- 6. gerar os arquivos
@@ -485,7 +513,7 @@ function semPalavras(c) {
  * (<video>.cortador.json). Video do PC nao tem: fica so o nome do arquivo.
  */
 function contextoDoVideo(video) {
-  const nome = path.basename(video, path.extname(video)).replace(/s*[[^]]+]s*$/, '');
+  const nome = path.basename(video, path.extname(video)).replace(/\s*\[[^\]]+\]\s*$/, '');
   let info = {};
   try { info = JSON.parse(fs.readFileSync(video + '.cortador.json', 'utf8')) || {}; } catch (_) {}
   return { texto: [info.titulo, nome].filter(Boolean).join(' · '), canal: info.canal || '' };
@@ -516,17 +544,38 @@ function titular(cortes, video, sessao, nome) {
  *
  * @param {object} ctx  { video, assinatura, pastaSaida, opcoes, avisar, emitir }
  */
+/**
+ * Gancho escrito pela IA, quando ela esta ligada (chave no .env). Qualquer
+ * falha devolve null e entra o gancho por regra - a IA nunca trava um corte.
+ */
+async function ganchoEntendido(c, usados, ctx) {
+  if (!ia.ativo()) return null;
+  try {
+    const info = c.contextoJogo ? infoDeJogo(c, c.contextoJogo) : null;
+    return await ia.ganchoDaIa({
+      fala: c.texto, antes: c.contextoAntes,
+      streamer: info && info.streamer, jogo: info && info.jogo, evitar: usados,
+    });
+  } catch (e) {
+    if (ctx.avisar) ctx.avisar({ tipo: 'aviso', msg: 'A IA não escreveu o gancho do clipe ' + c.numero + ' (' + e.message + '): usei o automático.' });
+    return null;
+  }
+}
+
 async function gerarClipes(cortes, ctx) {
   const vertical = ctx.opcoes.formato !== 'original';
   const prontos = [];
 
+  const ganchosUsados = new Set(); // o mesmo gancho em cortes seguidos tem cara de template
   for (let i = 0; i < cortes.length; i++) {
     const c = cortes[i];
     // O gancho fica guardado no clipe: e o texto que a pessoa vai querer
     // reescrever depois, quando bater o olho no resultado e pensar em algo melhor.
     // ganchoFixo: o gancho escrito a mao pra um trecho marcado, no lugar do gerado
     c.gancho = ctx.opcoes.textoGancho === false ? null
-      : (ctx.opcoes.ganchoFixo || gerarGanchoDeTela(c, ctx.opcoes.sessao));
+      : (ctx.opcoes.ganchoFixo || await ganchoEntendido(c, ganchosUsados, ctx)
+        || gerarGanchoDeTela(c, ctx.opcoes.sessao, null, ganchosUsados));
+    if (c.gancho) ganchosUsados.add(c.gancho.toLowerCase());
 
     // A nota entra no nome: assim o ranking aparece na pasta do Windows tambem
     const base = 'clipe-' + String(c.numero).padStart(2, '0') +
@@ -616,8 +665,8 @@ function explicarPoucos(sairam, pedidos, d, opcoes) {
               'então o que sobra pra cortar é isso — não a duração do vídeo.');
 
   let sugestao = null;
-  const minAtual = opcoes.minDur || 28;
-  const maxAtual = opcoes.maxDur || 62;
+  const minAtual = opcoes.minDur || 15;
+  const maxAtual = opcoes.maxDur || 35;
   if (d.tetoCurto > d.teto) {
     sugestao = 'Com cortes mais curtos (' + d.minCurto + ' a ' + d.maxCurto +
                's) dava pra tirar até ' + d.tetoCurto + ' desse mesmo ' + oQue + ', ' +
@@ -694,7 +743,8 @@ async function renderizarClipe(ctx, c) {
       // O gancho da TELA e diferente do titulo do post: ele precisa criar
       // lacuna em 2 linhas, nao resumir o trecho.
       gancho: gancho,
-      duracaoGancho: opcoes.duracaoGancho || 4,
+      // o clipe todo: clipe curto e de reacao, e 3 s nao dava tempo de ler
+      duracaoGancho: opcoes.duracaoGancho || Math.ceil(c.duracao) + 1,
       margemGancho: formatoDoClipe === 'split' ? 660 : 180,
       posicaoGancho: opcoes.posicaoGancho === 'meio' ? 'meio' : 'topo',
       textoFixo: textoFixo,
@@ -974,8 +1024,8 @@ async function extrairMais(pedido, avisar) {
   delete opcoes.modoTrecho;
   delete opcoes.animacao; // projeto antigo, de quando existia a animacao por cima
   const quantidade = Math.max(1, Math.min(20, Math.round(Number(pedido.quantidade) || opcoes.quantidade || 6)));
-  const minDur = Number(pedido.minDur) || opcoes.minDur || 28;
-  const maxDur = Math.max(minDur + 5, Number(pedido.maxDur) || opcoes.maxDur || 62);
+  const minDur = Number(pedido.minDur) || opcoes.minDur || 15;
+  const maxDur = Math.max(minDur + 5, Number(pedido.maxDur) || opcoes.maxDur || 35);
   Object.assign(opcoes, { quantidade, minDur, maxDur });
 
   const trecho = conferirTrecho(pedido.trecho, sessao.duracaoVideo, pedido.modo);

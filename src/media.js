@@ -236,6 +236,13 @@ function recorteEncaixado(entrada, area, largura, altura, saida) {
     'crop=' + largura + ':' + altura + ',setsar=1[' + saida + ']';
 }
 
+// Audio do corte: aresample alinha o som no zero (TikTok/CapCut ignoram o vao
+// do comeco), highpass tira o ronco grave do jogo, o compressor segura grito e
+// explosao, e o loudnorm deixa todo clipe no mesmo volume (-14 LUFS, o que
+// Shorts/TikTok usam na pratica - nenhum dos dois publica o numero oficial).
+const FILTRO_AUDIO = 'aresample=async=1:first_pts=0,highpass=f=80,' +
+  'acompressor=threshold=-18dB:ratio=3:attack=5:release=100,loudnorm=I=-14:TP=-1.5:LRA=11';
+
 // Vinheta leve: escurece um pouco as bordas e puxa o olho pro centro. Sutil de
 // proposito - forte, ela apaga a webcam e o mapa do jogo.
 const VINHETA = 'vignette=angle=PI/5';
@@ -379,7 +386,7 @@ async function cortarClipe(o) {
   // no comeco do audio (live gravada da Twitch/Kick as vezes tem), vira silencio.
   // Sem isso o arquivo dependia de "edit list", que o TikTok e o CapCut ignoram -
   // e a voz saia fora de tempo la (medido: 0,19s num clipe de VOD da Twitch).
-  if (!teaser && o.temAudio !== false) args.push('-af', 'aresample=async=1:first_pts=0');
+  if (!teaser && o.temAudio !== false) args.push('-af', FILTRO_AUDIO);
 
   args.push(
     '-c:v', 'libx264', '-preset', q.preset, '-crf', q.crf,
@@ -778,7 +785,46 @@ async function gerarPrevia(video, segundo, formato, recorte, destino, extra) {
   return destino;
 }
 
+/** Movimento medio (YDIF) e brilho (YAVG) de 1 s do video a partir de `inicio`. */
+function medirComeco(ffmpeg, video, inicio) {
+  return new Promise((resolve) => {
+    const p = spawn(ffmpeg, ['-hide_banner', '-ss', inicio.toFixed(2), '-t', '1', '-i', video,
+      '-vf', 'fps=4,scale=320:-2,signalstats,metadata=print', '-an', '-f', 'null', '-'], { windowsHide: true });
+    let log = '';
+    p.stderr.setEncoding('utf8');
+    p.stderr.on('data', (d) => { log += d; });
+    p.on('error', () => resolve(null));
+    p.on('close', () => {
+      const media = (re) => {
+        const v = [...log.matchAll(re)].map((m) => Number(m[1]));
+        return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+      };
+      const movimento = media(/YDIF=([\d.]+)/g);
+      const brilho = media(/YAVG=([\d.]+)/g);
+      resolve(movimento == null || brilho == null ? null : { movimento, brilho });
+    });
+  });
+}
+
+/**
+ * Primeiro segundo parado (menu, tela travada, carregando) ou escuro faz o dedo
+ * passar direto. Devolve quantos segundos adiantar o comeco, de 0,5 em 0,5, ate
+ * `limite` (0 = o comeco ja esta bom, ou nao deu pra medir).
+ * Calibrado nos cortes reais de GTA 6: comeco parado mediu movimento 0,4-2,2;
+ * comeco com acao, 11-24. Nitidez (blurdetect) nao separava um do outro.
+ */
+async function adiantarComecoParado(video, inicio, limite) {
+  const { ffmpeg } = await garantirFfmpeg();
+  for (let pulo = 0; pulo <= limite + 0.001; pulo += 0.5) {
+    const r = await medirComeco(ffmpeg, video, inicio + pulo);
+    if (!r) return 0;
+    if (r.movimento >= 4 && r.brilho >= 20) return pulo;
+  }
+  return 0; // parado o trecho todo: melhor nao mexer do que comecar depois do lance
+}
+
 module.exports = {
+  adiantarComecoParado,
   garantirFfmpeg,
   inspecionar,
   extrairAudio,
@@ -790,5 +836,6 @@ module.exports = {
   acharWebcam,
   gerarPrevia,
   filtroDeFormato,
+  FILTRO_AUDIO,
   rodar,
 };

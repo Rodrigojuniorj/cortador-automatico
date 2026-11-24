@@ -135,14 +135,16 @@ const TITULOS_SEM_STREAMER = {
   chat: ['O chat foi à loucura com isso{noJ} 🤯'],
   generico: ['O momento mais insano da live{noJ} 😱', 'Ninguém esperava por isso{noJ} 👀'],
 };
-// gancho queimado na tela (curto; o emoji some no video)
+// gancho queimado na tela (curto; o emoji some no video). Sem "ESPERA O FINAL":
+// o corte agora abre no lance e termina logo depois da reacao - nao ha final
+// pra esperar, e prometer o que nao vem derruba a retencao.
 const GANCHOS = {
-  risada: ['NÃO AGUENTEI DE RIR', 'ELE CHOROU DE RIR', 'TENTA NÃO RIR'],
-  jogada: ['QUE JOGADA FOI ESSA?', 'OLHA O QUE ELE FEZ', 'ESSA FOI INSANA'],
-  ruim: ['DEU MUITO RUIM NO FINAL', 'ELE NÃO ESPERAVA ESSA', 'ESPERA O FINAL'],
-  susto: ['ELE NÃO ESPERAVA ISSO', 'OLHA O QUE ACONTECEU', 'NINGUÉM ACREDITOU'],
-  chat: ['O CHAT FOI À LOUCURA', 'NINGUÉM ESPERAVA ISSO'],
-  generico: ['ESPERA O FINAL', 'OLHA O QUE ACONTECEU', 'VOCÊ NÃO VAI ACREDITAR'],
+  risada: ['NÃO AGUENTEI DE RIR', 'ELE CHOROU DE RIR', 'TENTA NÃO RIR', 'ELE PERDEU O FÔLEGO DE RIR'],
+  jogada: ['QUE JOGADA FOI ESSA?', 'OLHA O QUE ELE FEZ', 'ESSA FOI INSANA', 'ELE FEZ ISSO MESMO?'],
+  ruim: ['DEU MUITO RUIM', 'ELE NÃO ESPERAVA ESSA', 'NADA DEU CERTO', 'O PLANO DEU ERRADO'],
+  susto: ['ELE NÃO ESPERAVA ISSO', 'OLHA O QUE ACONTECEU', 'NINGUÉM ACREDITOU', 'QUE SUSTO FOI ESSE?'],
+  chat: ['O CHAT FOI À LOUCURA', 'NINGUÉM ESPERAVA ISSO', 'O CHAT NÃO ACREDITOU'],
+  generico: ['OLHA O QUE ACONTECEU', 'VOCÊ NÃO VAI ACREDITAR', 'ELE NÃO ESPERAVA ISSO', 'QUE MOMENTO FOI ESSE?'],
 };
 
 function escolher(lista, semente) {
@@ -193,10 +195,19 @@ function titulosDeJogo(corte, info, extra) {
   return { titulos: titulos.slice(0, 3), tipo, falaRuim: fala.ruim };
 }
 
-function ganchoDeJogo(corte) {
+/**
+ * @param {Set} evitar  ganchos ja usados no mesmo lote (em minusculo): o mesmo
+ *                      texto em 3 cortes seguidos tem cara de template
+ */
+function ganchoDeJogo(corte, evitar) {
   const fala = qualidadeDaFala(corte);
   const tipo = tipoDoMomento(corte, fala.ruim);
-  return escolher(GANCHOS[tipo] || GANCHOS.generico, String(corte.inicio || 0) + '|' + tipo);
+  const lista = GANCHOS[tipo] || GANCHOS.generico;
+  const primeiro = escolher(lista, String(corte.inicio || 0) + '|' + tipo);
+  if (!evitar || !evitar.size) return primeiro;
+  // a partir da escolhida, o primeiro texto ainda nao usado (do tipo, depois o generico)
+  const ordem = lista.slice(lista.indexOf(primeiro)).concat(lista.slice(0, lista.indexOf(primeiro)), GANCHOS.generico);
+  return ordem.find((g) => !evitar.has(g.toLowerCase())) || primeiro;
 }
 
 module.exports = { detectarJogo, nomeDoStreamer, qualidadeDaFala, tipoDoMomento, titulosDeJogo, ganchoDeJogo, semPalavrao, JOGOS };

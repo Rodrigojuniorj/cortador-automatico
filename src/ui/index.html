@@ -1078,9 +1078,9 @@
 
       <label class="rot" style="margin-top:18px"><i data-lucide="timer" class="i"></i> Duração de cada corte</label>
       <div class="chips" id="duracoes">
-        <button class="chip" data-dur="18-40" aria-pressed="false">Curto · 20 a 40s</button>
-        <button class="chip" data-dur="28-62" aria-pressed="true">Médio · 30s a 1min</button>
-        <button class="chip" data-dur="45-62" aria-pressed="false">Longo · 45s a 1min</button>
+        <button class="chip" data-dur="12-25" aria-pressed="false">Curto · 12 a 25s</button>
+        <button class="chip" data-dur="15-35" aria-pressed="true">Médio · 15 a 35s</button>
+        <button class="chip" data-dur="30-60" aria-pressed="false">Longo · 30s a 1min</button>
       </div>
       <div style="font-size:var(--t6); color:var(--texto3); margin-top:10px; line-height:1.5">
         Corte curto costuma ser assistido até o fim — e isso conta mais que a duração.
@@ -1094,11 +1094,11 @@
         <input type="checkbox" id="textoGancho" checked>
         <div>
           <b>Gancho na tela</b>
-          <span>Texto grande nos primeiros 4 segundos, tirado da própria fala. Segura quem assiste sem som.</span>
+          <span>Texto grande o clipe todo, dizendo o que acontece. Segura quem assiste sem som.</span>
         </div>
       </label>
       <label class="marcar">
-        <input type="checkbox" id="legendar">
+        <input type="checkbox" id="legendar" checked>
         <div>
           <b>Legenda palavra por palavra</b>
           <span>Estilo Shorts, embaixo do vídeo. A palavra que está sendo dita fica amarela.</span>
@@ -1350,9 +1350,9 @@
 
       <label class="rot" style="margin-top:16px"><i data-lucide="timer" class="i"></i> Duração de cada corte</label>
       <div class="chips" id="maisDur">
-        <button class="chip" data-mdur="18-40">Curto · 20 a 40s</button>
-        <button class="chip" data-mdur="28-62">Médio · 30s a 1min</button>
-        <button class="chip" data-mdur="45-62">Longo · 45s a 1min</button>
+        <button class="chip" data-mdur="12-25">Curto · 12 a 25s</button>
+        <button class="chip" data-mdur="15-35">Médio · 15 a 35s</button>
+        <button class="chip" data-mdur="30-60">Longo · 30s a 1min</button>
       </div>
       <div class="dica" style="margin-top:9px">Depois que os melhores trechos já viraram corte, corte curto costuma caber em mais lugares.</div>
 
@@ -1661,9 +1661,9 @@
             </div>
             <label class="rot" style="margin-top:12px">Duração de cada um</label>
             <div class="chips" id="edDurCortes">
-              <button class="chip" data-edur="18-40">Curto</button>
-              <button class="chip" data-edur="28-62">Médio</button>
-              <button class="chip" data-edur="45-62">Longo</button>
+              <button class="chip" data-edur="12-25">Curto</button>
+              <button class="chip" data-edur="15-35">Médio</button>
+              <button class="chip" data-edur="30-60">Longo</button>
             </div>
           </div>
           <button class="btn principal" id="edUsarTrecho" style="width:100%; margin-top:14px"><i data-lucide="scissors" class="i"></i> <span id="edUsarTexto">Gerar os cortes</span></button>
@@ -1744,9 +1744,9 @@
       proporcaoTopo: 0.32,
       linha: { cor: '#ffffff', espessura: 8 },
     },
-    formato: 'split', quantidade: 8, duracao: '28-62', ordem: 'nota',
+    formato: 'split', quantidade: 8, duracao: '15-35', ordem: 'nota',
     velocidade: 'equilibrado', tamLegenda: 78,
-    gancho: true, legenda: false, focarRosto: true, picos: true,
+    gancho: true, legenda: true, focarRosto: true, picos: true,
     resolucao: 1080, pedidos: [], idioma: 'pt',
     // ao vivo: formato, webcam e o jeito de clipar
     av: { formato: 'split', canto: 'se', tamanho: 'media', duracao: 30, auto: true, sens: 'media', clipDur: 30 },
@@ -1760,7 +1760,14 @@
       Object.assign(cfg, salvo);
       cfg.recorte = rec;
       cfg.av = Object.assign({ formato: 'split', canto: 'se', tamanho: 'media', duracao: 30, auto: true, sens: 'media', clipDur: 30 }, salvo.av || {});
+      // Ajustes de antes do "modo reacao" (clipes de 28-62 s, legenda desligada):
+      // passam pros novos uma vez so - depois vale o que a pessoa escolher.
+      if (!salvo.modoReacao) {
+        cfg.duracao = { '18-40': '12-25', '28-62': '15-35', '45-62': '30-60' }[cfg.duracao] || '15-35';
+        cfg.legenda = true;
+      }
     }
+    cfg.modoReacao = true;
   } catch (_) {}
   const guardar = () => { try { localStorage.setItem(LEMBRAR, JSON.stringify(cfg)); } catch (_) {} };
 
@@ -1832,7 +1839,7 @@
     }
     $('btnAvancar').disabled = false;
     const nomeF = { split: 'Rosto + jogo', foco: 'Só uma área', vertical: 'Tela cheia', original: 'Sem mexer' }[formato];
-    const dur = { '18-40': '20 a 40s', '28-62': '30s a 1min', '45-62': '45s a 1min' }[cfg.duracao];
+    const dur = { '12-25': '12 a 25s', '15-35': '15 a 35s', '30-60': '30s a 1min' }[cfg.duracao];
     const partes = [nomeF];
     if (trechoFluxo) partes.push('trecho ' + mmss(trechoFluxo.inicio) + '–' + mmss(trechoFluxo.fim));
     partes.push(trechoFluxo && trechoFluxo.modo === 'exato'
@@ -3552,7 +3559,7 @@
   });
 
   // ------------------------------------------------------------ extrair mais
-  const mais = { qtd: 4, dur: '28-62' };
+  const mais = { qtd: 4, dur: '15-35' };
 
   function marcarMais() {
     document.querySelectorAll('#maisQtd [data-mqtd]').forEach((b) =>
@@ -3602,7 +3609,7 @@
       outros: p.clipes,
       contexto: 'projeto',
       trecho: trechosLembrados[p.pasta] || null,
-      durPadrao: p.opcoes && p.opcoes.minDur ? p.opcoes.minDur + '-' + p.opcoes.maxDur : '18-40',
+      durPadrao: p.opcoes && p.opcoes.minDur ? p.opcoes.minDur + '-' + p.opcoes.maxDur : '12-25',
     });
   }
   $('btnTrechoProjeto').addEventListener('click', abrirTrechoDoProjeto);
@@ -3708,7 +3715,7 @@
     c: null, base: null, inicio: 0, fim: 0, cursor: 0,
     janIni: 0, janFim: 0, palavras: [], pedido: 0,
     pararEm: null, arrasto: null, rodando: false, htmlMudancas: '',
-    modoTrecho: 'melhores', qtd: 3, dur: '18-40',
+    modoTrecho: 'melhores', qtd: 3, dur: '12-25',
     pastaProj: null,   // pasta do projeto do clipe aberto (no ao vivo nao tem projetoAtual)
     edicoes: {},       // correcoes da legenda: { "<inicio em centesimos>": "texto" }
     assinaturaLegenda: '',

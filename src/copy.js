@@ -199,7 +199,7 @@ function escolherVariante(lista, semente) {
  * @param {string} nome    nao usado hoje
  * @returns {string} gancho curto pronto pra queimar na tela
  */
-function gerarGanchoDeTela(corte, sessao, nome) {
+function gerarGanchoDeTela(corte, sessao, nome, evitar) {
   const info = corte.contextoJogo && infoDeJogo(corte, corte.contextoJogo);
   if (info) {
     // A fala do proprio clipe, quando curta e confiavel. Frase pronta ("OLHA O
@@ -207,8 +207,9 @@ function gerarGanchoDeTela(corte, sessao, nome) {
     const fortes = frasesFortes(corte.texto || '');
     const r = jogo.titulosDeJogo(corte, info, { fraseForte: fortes.length ? fortes[0].texto : null });
     const fala = citacaoDaFala(r.titulos);
-    if (fala && fala.length <= 42 && fala.split(/\s+/).length <= 8) return fala.toUpperCase();
-    return jogo.ganchoDeJogo(corte);
+    const daFala = fala && fala.length <= 42 && fala.split(/\s+/).length <= 8 ? fala.toUpperCase() : null;
+    if (daFala && !(evitar && evitar.has(daFala.toLowerCase()))) return daFala;
+    return jogo.ganchoDeJogo(corte, evitar);
   }
   const texto = String(corte.texto || '');
   const obj = objetoDoTrecho(texto);

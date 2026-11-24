@@ -61,7 +61,7 @@ const INTENCOES = [
     gatilhos: /\bassalt|\broub|\bbanco\b|\bgolpe\b|\bheist/i,
     perfil: 'reacao',
     termos: [
-      /\bassaltw*\b/i, /\broubw*\b/i, /\bbanco\b/i, /\bcofre\b/i, /\bdinheiro\b/i,
+      /\bassalt\w*\b/i, /\broub\w*\b/i, /\bbanco\b/i, /\bcofre\b/i, /\bdinheiro\b/i,
       /\bgrana\b/i, /\bdeu certo\b/i, /\bdeu errado\b/i, /\bplano\b/i, /\bmaleta\b/i,
     ],
     peso: 10,

@@ -8,5 +8,7 @@
   "scripts": {
     "start": "node src/server.js"
   },
-  "dependencies": {}
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "1.12.0"
+  }
 }

@@ -834,7 +834,7 @@ class SessaoAoVivo {
           '-i', junto, '-t', dur.toFixed(3),
           '-filter_complex', fs2, '-map', '[v]', '-map', '0:a?',
           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p',
-          '-af', 'aresample=async=1:first_pts=0', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000'];
+          '-af', media.FILTRO_AUDIO, '-c:a', 'aac', '-b:a', '160k', '-ar', '48000'];
       } else {
         // sem mexer na imagem, mas recodificando: copiar (-c copy) so comeca num
         // quadro-chave, e o clipe saia ate alguns segundos antes do lance e mais
@@ -842,7 +842,7 @@ class SessaoAoVivo {
         args = ['-y', '-hide_banner', '-loglevel', 'error', '-ss', deslocamento.toFixed(3), '-i', junto,
           '-t', dur.toFixed(3), '-map', '0:v:0', '-map', '0:a?',
           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
-          '-af', 'aresample=async=1:first_pts=0', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000'];
+          '-af', media.FILTRO_AUDIO, '-c:a', 'aac', '-b:a', '160k', '-ar', '48000'];
       }
       args.push('-movflags', '+faststart', mp4);
       await media.rodar(ffmpeg, args, { cwd: pastas.trabalho() });

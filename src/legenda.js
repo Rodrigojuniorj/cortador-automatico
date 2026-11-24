@@ -7,7 +7,9 @@
 
 const fs = require('fs');
 
-const PALAVRAS_POR_BLOCO = 3;
+// 2 por vez: em clipe de reacao a fala e curta e gritada, e bloco de 3 fica
+// na tela depois que a palavra ja passou
+const PALAVRAS_POR_BLOCO = 2;
 
 // Cores no formato ASS: &HAABBGGRR (sim, e BGR invertido)
 const BRANCO = '&H00FFFFFF';
@@ -164,11 +166,11 @@ function gerarAss(palavras, offset, destino, opcoes) {
   opcoes = opcoes || {};
   const linhas = [cabecalho(opcoes)];
 
-  // O gancho fica na tela nos primeiros segundos. E o que segura quem parou de
-  // rolar antes mesmo de entender o audio - e muita gente assiste sem som.
+  // O gancho fica na tela (o clipe todo, por padrao). E o que segura quem parou
+  // de rolar antes mesmo de entender o audio - e muita gente assiste sem som.
   const semEmoji = semEmojis(opcoes.gancho);
   if (semEmoji.length >= 8) {
-    const duracao = Math.max(2, Math.min(8, opcoes.duracaoGancho || 4));
+    const duracao = Math.max(2, Math.min(600, opcoes.duracaoGancho || 4));
     // letra maior, menos letra por linha: 26 cabe no tamanho 62
     const porLinha = Math.max(14, Math.round((26 * 62) / (opcoes.tamanhoGancho || tamanhoPadraoGancho(opcoes))));
     const texto = quebrarGancho(escapar(semEmoji).toUpperCase(), porLinha);
