@@ -30,6 +30,7 @@ const aovivo = require('./aovivo');
 const tiktok = require('./tiktok');
 const telegram = require('./telegram');
 const youtube = require('./youtube');
+const metricas = require('./metricas');
 
 // Um erro solto em algum canto (um ffmpeg que sumiu, uma conexao que caiu)
 // nao pode derrubar o programa inteiro: a janela ficaria dando "Failed to fetch"
@@ -966,6 +967,14 @@ const servidor = http.createServer(async (req, res) => {
       feito.enviadoYouTube = new Date().toISOString();
       marcarEnviado(arquivo, { enviadoYouTube: feito.enviadoYouTube, youtubeUrl: feito.url, youtubeAgendado: publicarEm });
       return json(res, 200, feito);
+    }
+    // metricas dos cortes postados (YouTube Analytics): o que esta dando certo
+    if (rota === '/api/metricas' && req.method === 'GET') {
+      return json(res, 200, metricas.resumo());
+    }
+    if (rota === '/api/metricas/atualizar' && req.method === 'POST') {
+      try { return json(res, 200, await metricas.atualizar()); }
+      catch (e) { return json(res, e.precisaLogin ? 401 : 502, { erro: e.message, precisaLogin: !!e.precisaLogin }); }
     }
 
     // ---------------------------------------------------------- modo leve / total

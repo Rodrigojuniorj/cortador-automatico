@@ -11,7 +11,8 @@ const media = require('./media');
 const legenda = require('./legenda');
 const momentos = require('./momentos');
 const { encontrarCortes, diagnosticarCortes, corteDoTrecho, achatarPalavras, mmss } = require('./score');
-const { gerarCopy, gerarGanchoDeTela, infoDeJogo } = require('./copy');
+const { gerarCopy, gerarGanchoDeTela, infoDeJogo, trocarTitulo } = require('./copy');
+const metricas = require('./metricas');
 const ia = require('./ia');
 const { interpretar } = require('./intencao');
 const sessoes = require('./sessoes');
@@ -371,6 +372,7 @@ async function processar(opcoes, avisar) {
       intencao: intencao,
       trecho: trecho,
       sessao: sessao.id,
+      preferencia: metricas.preferenciaDeDuracao(),
     });
   }
 
@@ -545,20 +547,20 @@ function titular(cortes, video, sessao, nome) {
  * @param {object} ctx  { video, assinatura, pastaSaida, opcoes, avisar, emitir }
  */
 /**
- * Gancho escrito pela IA, quando ela esta ligada (chave no .env). Qualquer
- * falha devolve null e entra o gancho por regra - a IA nunca trava um corte.
+ * Gancho e titulo escritos pela IA, quando ela esta ligada (chave no .env).
+ * Qualquer falha devolve null nos dois e entra o de regra - a IA nunca trava um corte.
  */
-async function ganchoEntendido(c, usados, ctx) {
-  if (!ia.ativo()) return null;
+async function textosEntendidos(c, usados, titulosUsados, ctx, referencia) {
+  if (!ia.ativo()) return { gancho: null, titulo: null };
   try {
     const info = c.contextoJogo ? infoDeJogo(c, c.contextoJogo) : null;
-    return await ia.ganchoDaIa({
+    return await ia.textosDaIa({
       fala: c.texto, antes: c.contextoAntes,
-      streamer: info && info.streamer, jogo: info && info.jogo, evitar: usados,
+      streamer: info && info.streamer, jogo: info && info.jogo, evitar: usados, evitarTitulos: titulosUsados, referencia,
     });
   } catch (e) {
-    if (ctx.avisar) ctx.avisar({ tipo: 'aviso', msg: 'A IA não escreveu o gancho do clipe ' + c.numero + ' (' + e.message + '): usei o automático.' });
-    return null;
+    if (ctx.avisar) ctx.avisar({ tipo: 'aviso', msg: 'A IA não escreveu o gancho e o título do clipe ' + c.numero + ' (' + e.message + '): usei o automático.' });
+    return { gancho: null, titulo: null };
   }
 }
 
@@ -567,14 +569,20 @@ async function gerarClipes(cortes, ctx) {
   const prontos = [];
 
   const ganchosUsados = new Set(); // o mesmo gancho em cortes seguidos tem cara de template
+  // ganchos que mais/menos deram views no canal: a IA usa como pista (null com poucos dados)
+  const referencia = ia.ativo() ? metricas.ganchosDeReferencia() : null;
+  // titulos que ja foram pro canal: a IA nao repete (dois videos com o mesmo titulo ja aconteceu)
+  const titulosUsados = new Set(ia.ativo() ? metricas.postados().map((p) => String(p.titulo).toLowerCase()).filter(Boolean) : []);
   for (let i = 0; i < cortes.length; i++) {
     const c = cortes[i];
+    // gancho sem tela (desligado ou escrito a mao): a IA ainda escreve o titulo
+    const daIa = await textosEntendidos(c, ganchosUsados, titulosUsados, ctx, referencia);
+    if (daIa.titulo) { trocarTitulo(c, daIa.titulo); titulosUsados.add(daIa.titulo.toLowerCase()); }
     // O gancho fica guardado no clipe: e o texto que a pessoa vai querer
     // reescrever depois, quando bater o olho no resultado e pensar em algo melhor.
     // ganchoFixo: o gancho escrito a mao pra um trecho marcado, no lugar do gerado
     c.gancho = ctx.opcoes.textoGancho === false ? null
-      : (ctx.opcoes.ganchoFixo || await ganchoEntendido(c, ganchosUsados, ctx)
-        || gerarGanchoDeTela(c, ctx.opcoes.sessao, null, ganchosUsados));
+      : (ctx.opcoes.ganchoFixo || daIa.gancho || gerarGanchoDeTela(c, ctx.opcoes.sessao, null, ganchosUsados));
     if (c.gancho) ganchosUsados.add(c.gancho.toLowerCase());
 
     // A nota entra no nome: assim o ranking aparece na pasta do Windows tambem

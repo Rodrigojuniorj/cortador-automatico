@@ -44,19 +44,38 @@ const SISTEMA = [
   '- Sem emoji, sem hashtag, sem aspas, sem palavrão.',
   '- A transcrição é automática e erra palavras: entenda a ideia, não copie frases soltas.',
   '- Pense em 3 opções com ideias diferentes e escolha a que mais faria você parar de rolar.',
-  '- Se a fala não deixar claro o que acontece, responda apenas: NADA',
   '',
-  'Responda só com o gancho escolhido, sem explicação.',
+  'Você também escreve o TÍTULO do post (o texto embaixo do vídeo no YouTube e no TikTok).',
+  'Nos cortes de GTA que mais deram views em 2026, o título conta a cena com o nome do streamer:',
+  '"PAULINHO LOKO ACHOU CAVALOS NO GTA 6", "As meninas do chat escolheram o cabelo da Lucia no GTA 6",',
+  '"Todyn fingiu ser o dono do morro e o coringa não deixou barato".',
+  'Título genérico, que serve pra qualquer vídeo, não funciona: "O momento mais insano da live",',
+  '"Olha essa reação", "Ninguém esperava isso", "surtou com isso".',
+  'Regras do título:',
+  '- De 5 a 12 palavras, no máximo 70 caracteres, português do Brasil.',
+  '- Comece pelo nome do streamer quando ele for informado. Cite o jogo se couber natural.',
+  '- Diga o que acontece de concreto no trecho, com tensão ou curiosidade, sem contar o desfecho.',
+  '- Tem que ser verdade no trecho, igual ao gancho. Não invente nome, lugar ou objeto.',
+  '- Diferente do gancho: o gancho prende na tela, o título diz do que é o vídeo.',
+  '- Sem emoji, sem hashtag, sem aspas, sem palavrão.',
+  '',
+  'Responda em exatamente duas linhas, sem explicação:',
+  'GANCHO: <o gancho escolhido>',
+  'TITULO: <o título>',
+  'Se a fala não deixar claro o que acontece, escreva NADA no lugar do texto.',
 ].join('\n');
 
 /**
- * @param {object} p { fala, antes, streamer, jogo, evitar: Set }
- * @returns {Promise<string|null>} gancho em caixa alta, ou null (usar o de regra)
+ * Gancho de tela e titulo do post, numa chamada so.
+ * @param {object} p { fala, antes, streamer, jogo, evitar: Set, evitarTitulos: Set,
+ *                     referencia: { bons, ruins } | null }
+ * @returns {Promise<{gancho: string|null, titulo: string|null}>} null = usar o de regra
  */
-async function ganchoDaIa(p) {
-  if (!ativo()) return null;
+async function textosDaIa(p) {
+  const nada = { gancho: null, titulo: null };
+  if (!ativo()) return nada;
   const fala = String(p.fala || '').trim();
-  if (fala.split(/\s+/).length < 4) return null; // sem fala nao ha o que entender
+  if (fala.split(/\s+/).length < 4) return nada; // sem fala nao ha o que entender
 
   if (!cliente) cliente = new Anthropic({ maxRetries: 2, timeout: 60 * 1000 });
   const usados = p.evitar && p.evitar.size ? [...p.evitar].join(' | ') : 'nenhum';
@@ -71,7 +90,16 @@ async function ganchoDaIa(p) {
     fala,
     '',
     'Ganchos já usados em outros cortes desta live (não repita): ' + usados,
-  ].join('\n');
+    // titulo repetido no canal tem cara de robo (ja aconteceu: dois videos com o mesmo)
+    'Títulos já usados no canal (não repita nem chegue perto): ' +
+      (p.evitarTitulos && p.evitarTitulos.size ? [...p.evitarTitulos].slice(-40).join(' | ') : 'nenhum'),
+  ].concat(p.referencia ? [
+    '',
+    'Ganchos deste canal que MAIS deram views (pista do que funciona com este público; não copie):',
+    ...p.referencia.bons.map((g) => '- ' + g.gancho + ' (' + g.views + ' views, ' + g.retencao + '% assistido)'),
+    'Ganchos deste canal que MENOS deram views (evite esse jeito):',
+    ...p.referencia.ruins.map((g) => '- ' + g.gancho + ' (' + g.views + ' views, ' + g.retencao + '% assistido)'),
+  ] : []).join('\n');
 
   const r = await cliente.beta.messages.create({
     model: MODELO,
@@ -82,10 +110,33 @@ async function ganchoDaIa(p) {
     system: SISTEMA,
     messages: [{ role: 'user', content: pedido }],
   });
-  if (r.stop_reason === 'refusal') return null;
+  if (r.stop_reason === 'refusal') return nada;
 
-  const texto = r.content.filter((b) => b.type === 'text').map((b) => b.text).join(' ');
-  return limparGancho(texto);
+  const texto = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+  return lerResposta(texto, p.evitarTitulos);
+}
+
+/** As linhas "GANCHO: ..." e "TITULO: ...". Linha fora do formato vira null. */
+function lerResposta(texto, evitarTitulos) {
+  const linha = (rotulo) => (String(texto || '').match(new RegExp('^\\s*' + rotulo + '\\s*:\\s*(.+)$', 'im')) || [])[1];
+  const titulo = limparTitulo(linha('T[IÍ]TULO'));
+  return {
+    gancho: limparGancho(linha('GANCHO')),
+    titulo: titulo && !(evitarTitulos && evitarTitulos.has(titulo.toLowerCase())) ? titulo : null,
+  };
+}
+
+function limparTitulo(texto) {
+  const t = String(texto || '')
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '')
+    .replace(/["“”«»*]/g, '')
+    .replace(/#\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.]+$/, '');
+  const palavras = t.split(' ').filter(Boolean).length;
+  if (!t || /^nada$/i.test(t) || palavras < 3 || palavras > 16 || t.length > 90) return null;
+  return t;
 }
 
 /** Confere o formato que a IA devolveu. Fora do combinado vira null (usa a regra). */
@@ -102,4 +153,4 @@ function limparGancho(texto) {
   return t;
 }
 
-module.exports = { ativo, ganchoDaIa, limparGancho, MODELO };
+module.exports = { ativo, textosDaIa, lerResposta, limparGancho, limparTitulo, MODELO };

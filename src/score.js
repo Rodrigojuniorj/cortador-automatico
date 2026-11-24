@@ -748,6 +748,17 @@ function bonusDeIntencao(janela, intencao) {
   return { nota: nota, rotulo: rotulo(nota), motivos: bons.concat(ruins.length ? [ruins[ruins.length - 1]] : []) };
 }
 
+/**
+ * Pista das metricas do proprio canal (metricas.preferenciaDeDuracao): pontos
+ * pela faixa de duracao que mais deu views. Sem dados suficientes nao vem nada.
+ */
+function bonusDoCanal(janela, preferencia) {
+  const r = preferencia ? preferencia(janela.fim - janela.inicio) : null;
+  if (!r || !r.pontos) return {};
+  const nota = Math.max(1, Math.min(99, Math.round(janela.nota + r.pontos)));
+  return { nota: nota, rotulo: rotulo(nota), motivos: (janela.motivos || []).concat({ fator: r.fator, pontos: r.pontos }) };
+}
+
 // ---------------------------------------------------------------- titulo
 
 const PARADA = new Set(['que','para','com','uma','como','mais','dos','das','por','isso','aqui','esse','essa','você','voce','então','entao','muito','tem','não','nao','sim','vai','são','sao','pra','pro','the','and','seu','sua','meu','minha','ele','ela','nos','nós','tudo','todo','toda','ser','ter','fazer','está','esta','estão','foi','era','uns','umas','quando','porque','depois','agora','gente','coisa','coisas','fica','ficar','pode','vamos','sobre','cada','onde']);
@@ -895,6 +906,7 @@ function encontrarCortes(transcricao, energia, opcoes) {
     Object.assign(j, pontuar(j, energia, perfil, opcoes.sessao));
     Object.assign(j, bonusDeMomento(j, momentos, perfil));
     Object.assign(j, bonusDeIntencao(j, opcoes.intencao));
+    Object.assign(j, bonusDoCanal(j, opcoes.preferencia));
   }
   candidatas.sort((a, b) => b.nota - a.nota);
 

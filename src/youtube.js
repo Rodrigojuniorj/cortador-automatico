@@ -20,7 +20,10 @@ const fs = require('fs');
 const path = require('path');
 const pastas = require('./pastas');
 
-const ESCOPO = 'https://www.googleapis.com/auth/youtube.upload';
+// upload + leitura das metricas (YouTube Analytics). Quem conectou antes so com
+// upload continua enviando; pra ler metricas precisa conectar de novo.
+const ESCOPO_METRICAS = 'https://www.googleapis.com/auth/yt-analytics.readonly';
+const ESCOPO = 'https://www.googleapis.com/auth/youtube.upload ' + ESCOPO_METRICAS;
 const TOKEN = 'https://oauth2.googleapis.com/token';
 const UPLOAD = 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
 
@@ -37,6 +40,7 @@ function gravarTokens(t, anterior) {
     // o Google so manda refresh_token no primeiro login: na renovacao mantem o antigo
     refresh_token: t.refresh_token || (anterior && anterior.refresh_token),
     expira: Date.now() + (Number(t.expires_in) - 60) * 1000,
+    escopo: t.scope || (anterior && anterior.escopo) || '',
   };
   fs.mkdirSync(path.dirname(arquivoTokens()), { recursive: true });
   fs.writeFileSync(arquivoTokens(), JSON.stringify(dados, null, 2), 'utf8');
@@ -74,7 +78,8 @@ let ultimoErro = null;
 
 function estado() {
   const t = lerTokens();
-  return { ativo: ativo(), conectado: !!(t && t.refresh_token), entrando: !!pendente, erro: ultimoErro };
+  const conectado = !!(t && t.refresh_token);
+  return { ativo: ativo(), conectado, metricas: conectado && String(t.escopo || '').includes(ESCOPO_METRICAS), entrando: !!pendente, erro: ultimoErro };
 }
 
 /** Link de autorizacao do Google. porta = a do programa (o callback volta nele). */
@@ -126,6 +131,9 @@ const ERROS = {
   uploadLimitExceeded: 'O YouTube limitou os envios deste canal por hoje.',
   youtubeSignupRequired: 'Essa conta Google não tem canal no YouTube. Crie o canal e conecte de novo.',
   authError: 'O login do YouTube venceu. Conecte de novo.',
+  insufficientPermissions: 'Conecte o YouTube de novo para liberar a leitura das métricas.',
+  accessNotConfigured: 'Ative a "YouTube Analytics API" no Google Cloud (mesmo projeto das chaves do .env).',
+  SERVICE_DISABLED: 'Ative a "YouTube Analytics API" no Google Cloud (mesmo projeto das chaves do .env).',
 };
 
 async function erroDoGoogle(r) {
@@ -238,4 +246,4 @@ function liberarHorario(iso) {
   gravarAgenda(lerAgenda().filter((t) => t !== iso));
 }
 
-module.exports = { ativo, estado, entrar, callback, enviar, reservarHorario, liberarHorario, HORARIOS };
+module.exports = { ativo, estado, entrar, callback, enviar, reservarHorario, liberarHorario, tokenValido, erroDoGoogle, HORARIOS };

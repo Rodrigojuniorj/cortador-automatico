@@ -500,6 +500,32 @@
   /* ---------------------------------------------------------- projetos */
   #projetos { display: none; }
   #projetos.on { display: block; }
+
+  /* ---------------------------------------------------------- desempenho */
+  #desempenho { display: none; }
+  #desempenho.on { display: block; }
+  .dsp-aviso { display: grid; gap: 6px; margin-bottom: 16px; font-size: var(--t5); color: var(--texto2); line-height: 1.5; }
+  .dsp-aviso b { color: var(--texto); }
+  .dsp-grupos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px; margin-bottom: 16px; }
+  .dsp-grupo { background: var(--vidro); border: 1px solid var(--linha); border-radius: var(--raio-g); padding: 12px 14px; }
+  .dsp-grupo h3 { font-size: var(--t5); font-weight: 650; margin-bottom: 8px; }
+  .dsp-grupo table { width: 100%; border-collapse: collapse; font-size: var(--t6); font-variant-numeric: tabular-nums; }
+  .dsp-grupo th { text-align: right; font-weight: 500; color: var(--texto3); padding: 3px 0 3px 8px; }
+  .dsp-grupo th:first-child, .dsp-grupo td:first-child { text-align: left; padding-left: 0; }
+  .dsp-grupo td { text-align: right; padding: 4px 0 4px 8px; border-top: 1px solid var(--linha); color: var(--texto2); }
+  .dsp-grupo tr:nth-child(2) td { color: var(--texto); font-weight: 600; }
+  .dsp-lista { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .dsp-video {
+    display: flex; align-items: center; gap: 12px; background: var(--vidro); border: 1px solid var(--linha);
+    border-radius: var(--raio-g); padding: 8px 12px 8px 8px; color: var(--texto); text-decoration: none;
+  }
+  .dsp-video:hover { border-color: var(--linha2); background: var(--vidro2); }
+  .dsp-video img { flex: none; width: 36px; height: 64px; object-fit: cover; border-radius: 6px; background: #05070b; }
+  .dsp-video .pos { flex: none; width: 26px; text-align: center; color: var(--texto3); font-size: var(--t6); font-variant-numeric: tabular-nums; }
+  .dsp-video .txt { flex: 1; min-width: 0; }
+  .dsp-video .txt b { display: block; font-size: var(--t5); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dsp-video .num { flex: none; text-align: right; font-size: var(--t6); color: var(--texto2); font-variant-numeric: tabular-nums; line-height: 1.5; }
+  .dsp-video .num b { font-size: var(--t4); color: var(--texto); }
   .chips.miudos .chip { padding: 6px 12px; font-size: var(--t5); }
   #editor.ao-vivo .so-video { display: none !important; }
   .texto-opcoes { display: grid; gap: 8px; margin-top: 12px; }
@@ -844,6 +870,7 @@
     <button class="btn principal p" id="btnLinkTopo" type="submit">Ir</button>
   </form>
   <button class="btn p" id="btnProjetos"><i data-lucide="folder-kanban" class="i"></i> Projetos</button>
+  <button class="btn p btn-youtube" id="btnDesempenho"><i data-lucide="chart-no-axes-column" class="i"></i> Desempenho</button>
   <button class="btn p" id="btnAjustes"><i data-lucide="settings-2" class="i"></i> Ajustes</button>
 </div>
 
@@ -1310,6 +1337,22 @@
       </div>
     </div>
     <div class="projetos-lista" id="listaProjetos"></div>
+  </section>
+
+  <!-- ============ DESEMPENHO (metricas do YouTube) ============ -->
+  <section id="desempenho">
+    <div class="proj-topo">
+      <div>
+        <h2>O que está dando certo</h2>
+        <p class="sub">Views e retenção dos cortes que o programa postou no YouTube. Cada vídeo entra depois de 48h no ar.</p>
+      </div>
+      <div class="proj-botoes">
+        <button class="btn" id="btnMetricas"><i data-lucide="refresh-cw" class="i"></i> Atualizar métricas</button>
+      </div>
+    </div>
+    <div class="dsp-aviso" id="dspAviso"></div>
+    <div class="dsp-grupos" id="dspGrupos"></div>
+    <div class="dsp-lista" id="dspLista"></div>
   </section>
 
   <!-- ============ RESULTADO / PROJETO ABERTO ============ -->
@@ -1783,7 +1826,7 @@
   const semErro = () => $('erro').classList.add('oculto');
 
   // Uma secao na tela por vez. O modo diz se a trilha e a barra de baixo aparecem.
-  const SECOES = ['tela1', 'tela2', 'tela3', 'processando', 'resultado', 'projetos', 'aovivo'];
+  const SECOES = ['tela1', 'tela2', 'tela3', 'processando', 'resultado', 'projetos', 'aovivo', 'desempenho'];
   let avAtivo = false;     // tem live sendo gravada agora
   let modoCorte = 'video'; // aba escolhida: video gravado ou ao vivo
   function mostrarSecao(id, modo) {
@@ -3492,6 +3535,91 @@
   }
 
   $('buscaProjeto').addEventListener('input', pintarProjetos);
+
+  // ------------------------------------------------------------ desempenho (YouTube Analytics)
+  const numero = (n) => Math.round(n || 0).toLocaleString('pt-BR');
+  async function abrirDesempenho() {
+    semErro();
+    mostrarSecao('desempenho', 'projetos');
+    window.scrollTo({ top: 0 });
+    try { pintarDesempenho(await fetch('/api/metricas').then((x) => x.json())); } catch (_) {}
+    // ja tem a permissao: le as metricas novas sozinho ao abrir
+    if (estadoRede.youtube.metricas) atualizarMetricas();
+    else pintarBotaoMetricas();
+  }
+
+  function pintarBotaoMetricas() {
+    const b = $('btnMetricas');
+    b.innerHTML = estadoRede.youtube.metricas
+      ? '<i data-lucide="refresh-cw" class="i"></i> Atualizar métricas'
+      : '<i data-lucide="key-round" class="i"></i> Liberar leitura das métricas';
+    icones(b);
+  }
+
+  async function atualizarMetricas() {
+    const b = $('btnMetricas');
+    b.disabled = true;
+    b.innerHTML = '<i data-lucide="loader-circle" class="i"></i> Lendo o YouTube...';
+    icones(b);
+    try {
+      const r = await postJson('/api/metricas/atualizar');
+      if (r.erro) {
+        if (r.precisaLogin) estadoRede.youtube.metricas = false;
+        throw new Error(r.erro);
+      }
+      pintarDesempenho(r);
+    } catch (e) {
+      erro(e.message);
+    } finally {
+      b.disabled = false;
+      pintarBotaoMetricas();
+    }
+  }
+
+  $('btnMetricas').addEventListener('click', async () => {
+    if (estadoRede.youtube.metricas) return atualizarMetricas();
+    // conectar de novo pede a permissao nova (o envio continua valendo)
+    const janela = window.open('', '_blank');
+    try { await conectarRede('youtube', janela); } catch (e) { return erro(e.message); }
+    if (estadoRede.youtube.metricas) atualizarMetricas();
+    else erro('O Google não liberou a leitura das métricas. Na tela de login, marque a permissão do YouTube Analytics.');
+  });
+
+  function pintarDesempenho(r) {
+    const falta = (min, tem) => Math.max(0, min - tem);
+    const comGancho = (r.lista || []).filter((p) => p.metricas && p.gancho).length;
+    $('dspAviso').innerHTML =
+      '<div><b>' + r.total + '</b> ' + (r.total === 1 ? 'corte postado' : 'cortes postados') + ' pelo programa, <b>' + r.medidos + '</b> com métrica.</div>' +
+      '<div>Gancho da IA aprendendo com o canal: ' + (r.ganchosLigados ? '<b>ligado</b>'
+        : 'liga com ' + r.minimoGanchos + ' cortes medidos com gancho (faltam ' + falta(r.minimoGanchos, comGancho) + ')') + '.</div>' +
+      '<div>Nota dos cortes ajustada pela duração que rende mais: ' + (r.ajusteLigado ? '<b>ligado</b>'
+        : 'liga com ' + r.minimoAjuste + ' cortes medidos (faltam ' + falta(r.minimoAjuste, r.medidos) + '). Com menos, um vídeo que estourou por sorte viraria regra') + '.</div>';
+
+    const tabela = (titulo, linhas) => '<div class="dsp-grupo"><h3>' + titulo + '</h3><table>' +
+      '<tr><th></th><th>vídeos</th><th>views</th><th>assistido</th></tr>' +
+      linhas.map((g) => '<tr><td>' + esc(g.nome) + '</td><td>' + g.videos + '</td><td>' + numero(g.views) + '</td><td>' + g.retencao + '%</td></tr>').join('') +
+      '</table></div>';
+    $('dspGrupos').innerHTML = r.grupos
+      ? tabela('Por streamer', r.grupos.streamer) + tabela('Por duração', r.grupos.duracao) + tabela('Por horário', r.grupos.horario)
+      : '';
+
+    const lista = r.lista || [];
+    $('dspLista').innerHTML = lista.length ? lista.map((p, i) => {
+      const m = p.metricas;
+      return '<a class="dsp-video" href="' + esc(p.url) + '" target="_blank" rel="noopener">' +
+        '<span class="pos">' + (m ? i + 1 : '') + '</span>' +
+        (p.miniatura ? '<img src="' + urlArquivo(p.miniatura) + '" alt="" loading="lazy">' : '') +
+        '<span class="txt"><b>' + esc(p.gancho || p.titulo) + '</b>' +
+          '<span class="projeto-meta"><span>' + esc(p.streamer || 'Sem nome') + '</span><span>' + Math.round(p.duracao) + 's</span>' +
+          (p.publicado ? '<span>' + esc(dataCurta(p.publicado)) + '</span>' : '') + '</span></span>' +
+        '<span class="num">' + (m
+          ? '<b>' + numero(m.views) + '</b> views<br>' + Math.round(m.retencao) + '% assistido · ' + numero(m.likes) + ' likes'
+          : 'aguardando<br>48h no ar') + '</span>' +
+      '</a>';
+    }).join('') : '<div class="vazio">Nenhum corte postado pelo programa ainda. Os que você mandar pro YouTube aparecem aqui.</div>';
+  }
+
+  $('btnDesempenho').addEventListener('click', abrirDesempenho);
   $('btnProjetos').addEventListener('click', abrirProjetos);
   $('btnResVoltar').addEventListener('click', abrirProjetos);
   $('btnProjVoltar').addEventListener('click', () => {

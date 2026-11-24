@@ -27,7 +27,9 @@ const media = require('./media');
 const baixador = require('./baixar');
 const sessoes = require('./sessoes');
 const legenda = require('./legenda');
-const { gerarCopy } = require('./copy');
+const { gerarCopy, infoDeJogo, trocarTitulo } = require('./copy');
+const ia = require('./ia');
+const metricas = require('./metricas');
 const { transcrever, fontsdirRelativo } = require('./pipeline');
 const pastas = require('./pastas');
 
@@ -983,6 +985,7 @@ class SessaoAoVivo {
           clipe.titulos = cp.titulos;
           clipe.hashtags = cp.hashtags;
           clipe.legendaPost = cp.legenda;
+          if (ia.ativo()) await this.tituloDaIa(clipe, t, offset);
         }
         this.gravarRelatorio();
         this.emitir({ tipo: 'clipe-atualizado', clipe });
@@ -998,6 +1001,33 @@ class SessaoAoVivo {
       this.travar(job, -1);
       this.fazendoOriginal = false;
       this.proximoOriginal();
+    }
+  }
+
+  /**
+   * Titulo escrito pela IA lendo a fala: a regra so sabe "o momento mais insano
+   * da live", e titulo generico e o que menos rende nos cortes de GTA. Se a IA
+   * falhar, fica o titulo da regra.
+   */
+  async tituloDaIa(clipe, transcricao, offset) {
+    try {
+      const todas = (transcricao.segmentos || []).reduce((acc, s) => acc.concat(s.palavras || []), []);
+      const antes = todas.filter((p) => p.inicio >= offset - 20 && p.fim <= offset).map((p) => p.texto).join(' ');
+      const contexto = { texto: this.titulo || '', canal: this.nomeCanal || this.canal || '' };
+      const info = infoDeJogo(clipe, contexto);
+      const evitarTitulos = new Set([...(this.titulosUsados || []),
+        ...metricas.postados().map((p) => String(p.titulo).toLowerCase()).filter(Boolean)]);
+      evitarTitulos.delete(String(clipe.titulo).toLowerCase()); // o da regra deste mesmo clipe nao conta
+      const r = await ia.textosDaIa({
+        fala: clipe.texto, antes, streamer: info && info.streamer, jogo: info && info.jogo,
+        evitar: new Set(), evitarTitulos,
+      });
+      if (!r.titulo) return;
+      if (this.titulosUsados) this.titulosUsados.delete(String(clipe.titulo).toLowerCase());
+      trocarTitulo(clipe, r.titulo);
+      (this.titulosUsados = this.titulosUsados || new Set()).add(r.titulo.toLowerCase());
+    } catch (e) {
+      this.emitir({ tipo: 'aviso', msg: 'A IA não escreveu o título do clipe ' + clipe.numero + ' (' + e.message + '): ficou o automático.' });
     }
   }
 

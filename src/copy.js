@@ -544,4 +544,17 @@ function gerarCopy(corte, contextoDoVideo, sessao, nome) {
   };
 }
 
-module.exports = { gerarCopy, gerarTitulos, gerarHashtags, montarLegenda, gerarGanchoDeTela, infoDeJogo };
+/**
+ * Poe o titulo da IA na frente: vira o titulo do clipe, a primeira opcao da
+ * lista e a primeira linha da legenda pronta (que comeca pelo titulo).
+ */
+function trocarTitulo(clipe, novo) {
+  const antigo = clipe.titulo || '';
+  clipe.titulo = novo;
+  clipe.titulos = [{ texto: novo, estilo: 'ia' }].concat((clipe.titulos || []).filter((t) => t.texto !== novo)).slice(0, 3);
+  if (clipe.legendaPost && antigo && clipe.legendaPost.startsWith(antigo)) {
+    clipe.legendaPost = novo + clipe.legendaPost.slice(antigo.length);
+  }
+}
+
+module.exports = { gerarCopy, gerarTitulos, gerarHashtags, montarLegenda, gerarGanchoDeTela, infoDeJogo, trocarTitulo };
