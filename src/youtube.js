@@ -8,9 +8,11 @@
  * pra 127.0.0.1 em qualquer porta, entao o proprio programa recebe o
  * /youtube/callback - nada de ngrok aqui.
  *
- * Projeto do Google sem auditoria: o YouTube trava o video como PRIVADO ate o
- * projeto passar na auditoria (gratis) da YouTube API. A cota padrao (10.000
- * unidades/dia, 1.600 por envio) da uns 6 envios por dia.
+ * Cota (docs do Google, 2026): envio tem balde proprio de 100 videos por dia.
+ * Projeto sem auditoria nao trava mais o video como privado (mudou em 2/11/2026).
+ *
+ * Agendar: o video sobe na hora como privado com status.publishAt, e o proprio
+ * YouTube publica no horario - o PC nao precisa estar ligado.
  */
 
 const crypto = require('crypto');
@@ -120,7 +122,7 @@ async function callback(params) {
 // ---------------------------------------------------------------- envio
 
 const ERROS = {
-  quotaExceeded: 'Acabou a cota do dia da API do YouTube (uns 6 envios). Volta amanhã.',
+  quotaExceeded: 'Acabou a cota de envios do dia da API do YouTube. Volta amanhã.',
   uploadLimitExceeded: 'O YouTube limitou os envios deste canal por hoje.',
   youtubeSignupRequired: 'Essa conta Google não tem canal no YouTube. Crie o canal e conecte de novo.',
   authError: 'O login do YouTube venceu. Conecte de novo.',
@@ -154,9 +156,13 @@ async function enviar(arquivo, post) {
   let descricao = String(post.descricao || '').slice(0, 4900);
   if (!/#shorts\b/i.test(descricao)) descricao += (descricao ? ' ' : '') + '#shorts';
   const tags = (post.tags || []).map((t) => String(t).replace(/^#/, '')).filter(Boolean);
+  // agendado: o YouTube exige privado + publishAt, e ele mesmo publica na hora
+  const status = post.publicarEm
+    ? { privacyStatus: 'private', publishAt: post.publicarEm, selfDeclaredMadeForKids: false }
+    : { privacyStatus: 'public', selfDeclaredMadeForKids: false };
   const meta = {
     snippet: { title: tituloOk(post.titulo), description: descricao, tags, categoryId: '20' }, // 20 = Jogos
-    status: { privacyStatus: 'public', selfDeclaredMadeForKids: false },
+    status,
   };
 
   const inicio = await fetch(UPLOAD, {
@@ -186,7 +192,50 @@ async function enviar(arquivo, post) {
     id: v.id,
     url: 'https://youtube.com/shorts/' + v.id,
     privacidade: v.status && v.status.privacyStatus,
+    agendadoPara: post.publicarEm || null,
   };
 }
 
-module.exports = { ativo, estado, entrar, callback, enviar };
+// ---------------------------------------------------------------- agenda
+
+// Horarios de Brasilia, 6 por dia. Fontes (2026, blogs de ferramentas, sem
+// dado oficial): pico de Shorts no Brasil 4h-7h (Trendreport, 47 mil videos),
+// almoco 12h-14h, e noite 19h-22h na America Latina. Espacados pra um corte
+// nao concorrer com o outro.
+// shortcut: horario fixo e no fuso do PC; trocar pelo horario de pico do proprio canal quando der pra ler o YouTube Analytics
+const HORARIOS = [[7, 0], [12, 0], [14, 0], [17, 0], [19, 0], [21, 0]];
+const FOLGA_MS = 20 * 60 * 1000; // nao agenda pra daqui a menos de 20 min
+
+const arquivoAgenda = () => path.join(path.dirname(pastas.arquivoConfig()), 'youtube-agenda.json');
+function lerAgenda() {
+  try { return JSON.parse(fs.readFileSync(arquivoAgenda(), 'utf8')).filter((t) => Date.parse(t) > Date.now()); }
+  catch (_) { return []; }
+}
+function gravarAgenda(lista) {
+  fs.mkdirSync(path.dirname(arquivoAgenda()), { recursive: true });
+  fs.writeFileSync(arquivoAgenda(), JSON.stringify(lista.sort(), null, 2), 'utf8');
+}
+
+/** Pega o proximo horario livre e ja marca como ocupado. Devolve ISO. */
+function reservarHorario() {
+  const agora = new Date();
+  const ocupados = lerAgenda();
+  for (let dia = 0; dia < 365; dia++) {
+    for (const [h, m] of HORARIOS) {
+      const d = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + dia, h, m);
+      if (d - agora < FOLGA_MS) continue;
+      const iso = d.toISOString();
+      if (ocupados.includes(iso)) continue;
+      gravarAgenda(ocupados.concat(iso));
+      return iso;
+    }
+  }
+  throw new Error('Agenda do YouTube cheia.');
+}
+
+/** Devolve o horario se o envio falhou, pra outro clipe usar. */
+function liberarHorario(iso) {
+  gravarAgenda(lerAgenda().filter((t) => t !== iso));
+}
+
+module.exports = { ativo, estado, entrar, callback, enviar, reservarHorario, liberarHorario, HORARIOS };

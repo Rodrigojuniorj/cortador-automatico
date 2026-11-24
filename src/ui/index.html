@@ -444,6 +444,19 @@
     transition: border-color .25s var(--suave);
   }
   .clipe:hover { border-color: var(--linha2); }
+  /* selecao de varios clipes pra agendar no YouTube (so com o YouTube ligado) */
+  .clipe { position: relative; }
+  .clipe.marcado { border-color: var(--marca); box-shadow: 0 0 0 1px var(--marca); }
+  .sel-clipe { position: absolute; top: 10px; left: 10px; z-index: 2; width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); cursor: pointer; }
+  .sel-clipe input { width: 18px; height: 18px; cursor: pointer; accent-color: var(--marca); }
+  body:not(.youtube) .sel-clipe { display: none; }
+  #barraSel { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 50;
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 18px; border-radius: 16px;
+    background: var(--fundo); border: 1px solid var(--linha2); box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  #barraSel.oculto { display: none; }
+  #barraSel .txt { font-weight: 700; white-space: nowrap; }
+  .selo.agendado { background: rgba(251,191,36,.14); color: var(--amarelo); text-decoration: none; }
   .clipe video { width: 100%; aspect-ratio: 9/16; object-fit: contain; background: #000; display: block; }
   .clipe-corpo { padding: 13px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
   .selo { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 4px 10px; border-radius: 99px; font-size: var(--t6); font-weight: 700; }
@@ -3179,6 +3192,8 @@
       '><i data-lucide="scissors" class="i"></i> Editar</button>';
 
     div.innerHTML =
+      '<label class="sel-clipe" title="Selecionar pra agendar no YouTube"><input type="checkbox"' +
+        (selecionados.has(c.arquivo) ? ' checked' : '') + '></label>' +
       '<video src="' + src + '" ' + (capa ? 'poster="' + capa + '"' : '') + ' controls preload="none"></video>' +
       '<div class="clipe-corpo">' +
         '<div style="display:flex; gap:6px; flex-wrap:wrap">' +
@@ -3226,6 +3241,13 @@
     const btnEditar = div.querySelector('.abrir-editor');
     if (btnEditar) btnEditar.addEventListener('click', () => abrirEditor(c, pastaDoClipe || (projetoAtual && projetoAtual.pasta)));
     div.querySelectorAll('[data-rede]').forEach((b) => b.addEventListener('click', () => enviarPara(b.dataset.rede, b, c)));
+    const caixa = div.querySelector('.sel-clipe input');
+    if (selecionados.has(c.arquivo)) { selecionados.set(c.arquivo, { c, div }); div.classList.add('marcado'); }
+    caixa.addEventListener('change', () => {
+      if (caixa.checked) selecionados.set(c.arquivo, { c, div }); else selecionados.delete(c.arquivo);
+      div.classList.toggle('marcado', caixa.checked);
+      atualizarBarraSel();
+    });
     icones(div);
     return div;
   }
@@ -3235,7 +3257,7 @@
   // entrada do app (a legenda vai pelo Telegram). YouTube: posta direto, com texto.
   const REDES = {
     tiktok: { nome: 'TikTok', campo: 'enviadoTikTok', feito: (r) => (r.telegram ? 'TikTok + Telegram!' : 'No app do TikTok!') },
-    youtube: { nome: 'YouTube', campo: 'enviadoYouTube', feito: (r) => (r.privacidade === 'private' ? 'Subiu (privado)' : 'No YouTube!') },
+    youtube: { nome: 'YouTube', campo: 'enviadoYouTube', feito: (r) => (r.agendadoPara ? 'Agendado!' : r.privacidade === 'private' ? 'Subiu (privado)' : 'No YouTube!') },
   };
   const estadoRede = { tiktok: {}, youtube: {} };
   const lerRede = (rede) => fetch('/api/' + rede).then((x) => x.json()).then((e) => {
@@ -3262,6 +3284,11 @@
 
   function seloRede(rede, c) {
     const nome = REDES[rede].nome;
+    // agendado e ainda nao saiu: mostra quando o YouTube vai publicar
+    if (rede === 'youtube' && c.youtubeAgendado && Date.parse(c.youtubeAgendado) > Date.now()) {
+      return '<a class="selo agendado" href="' + esc(c.youtubeUrl || '#') + '" target="_blank" rel="noopener" title="O YouTube publica sozinho nesse horário">' +
+        '<i data-lucide="calendar-clock" class="i"></i> ' + esc(dataCurta(c.youtubeAgendado)) + '</a>';
+    }
     const dica = esc('Mandado pro ' + nome + ' em ' + dataCurta(c[REDES[rede].campo]));
     const dentro = '<i data-lucide="check-check" class="i"></i> No ' + nome;
     // no YouTube o selo abre o video
@@ -3269,6 +3296,71 @@
       ? '<a class="selo youtube" href="' + esc(c.youtubeUrl) + '" target="_blank" rel="noopener" title="' + dica + '">' + dentro + '</a>'
       : '<span class="selo ' + rede + '" title="' + dica + '">' + dentro + '</span>';
   }
+
+  // ---- varios clipes de uma vez: agenda no YouTube nos melhores horarios (6 por dia)
+  const selecionados = new Map(); // arquivo -> { c, div }
+  const barraSel = document.createElement('div');
+  barraSel.id = 'barraSel';
+  barraSel.className = 'oculto';
+  barraSel.innerHTML = '<span class="txt"></span>' +
+    '<button class="btn p" data-acao="limpar">Limpar</button>' +
+    '<button class="btn p principal" data-acao="agendar"><i data-lucide="calendar-clock" class="i"></i> Agendar no YouTube</button>';
+  document.body.appendChild(barraSel);
+  icones(barraSel);
+
+  function atualizarBarraSel() {
+    // clipe que saiu da tela (trocou de projeto) nao conta mais
+    for (const [k, v] of selecionados) if (!v.div.isConnected) selecionados.delete(k);
+    const n = selecionados.size;
+    barraSel.classList.toggle('oculto', n === 0);
+    barraSel.querySelector('.txt').textContent = n + (n === 1 ? ' clipe selecionado' : ' clipes selecionados');
+  }
+
+  barraSel.querySelector('[data-acao="limpar"]').addEventListener('click', () => {
+    for (const { div } of selecionados.values()) { div.classList.remove('marcado'); const cx = div.querySelector('.sel-clipe input'); if (cx) cx.checked = false; }
+    selecionados.clear();
+    atualizarBarraSel();
+  });
+
+  barraSel.querySelector('[data-acao="agendar"]').addEventListener('click', async function () {
+    atualizarBarraSel();
+    const lista = [...selecionados.values()];
+    if (!lista.length || this.disabled) return;
+    const jaFoi = lista.filter(({ c }) => c.enviadoYouTube).length;
+    if (jaFoi && !confirm(jaFoi + (jaFoi === 1 ? ' clipe já foi' : ' clipes já foram') + ' pro YouTube. Agendar de novo mesmo assim?')) return;
+    if (!estadoRede.youtube.conectado) { erro('Conecte o YouTube primeiro: clique em YouTube em qualquer clipe.'); return; }
+
+    const btn = this;
+    const txt = barraSel.querySelector('.txt');
+    btn.disabled = true;
+    let feitos = 0;
+    const falhas = [];
+    for (const { c, div } of lista) {
+      txt.textContent = 'Agendando ' + (feitos + falhas.length + 1) + ' de ' + lista.length + '...';
+      const r = await postJson('/api/youtube/enviar', {
+        arquivo: c.arquivo, titulo: c.titulo, legenda: c.legendaPost || c.titulo, hashtags: c.hashtags || [], agendar: true,
+      }).catch((e) => ({ erro: e.message }));
+      if (!r.ok) {
+        falhas.push((c.titulo || 'clipe') + ': ' + (r.erro || 'falhou'));
+        if (r.precisaLogin) { estadoRede.youtube.conectado = false; break; }
+        continue;
+      }
+      feitos++;
+      Object.assign(c, { enviadoYouTube: r.enviadoYouTube, youtubeUrl: r.url, youtubeAgendado: r.agendadoPara });
+      const selos = div.querySelector('.clipe-corpo > div');
+      if (selos) {
+        selos.querySelectorAll('.selo.youtube, .selo.agendado').forEach((s) => s.remove());
+        selos.insertAdjacentHTML('beforeend', seloRede('youtube', c));
+        icones(selos);
+      }
+      div.classList.remove('marcado');
+      div.querySelector('.sel-clipe input').checked = false;
+      selecionados.delete(c.arquivo);
+    }
+    btn.disabled = false;
+    atualizarBarraSel();
+    if (falhas.length) erro(feitos + ' agendado(s). Não deu em ' + falhas.length + ': ' + falhas.join(' | '));
+  });
 
   async function enviarPara(rede, botao, c) {
     const R = REDES[rede];
@@ -3294,6 +3386,7 @@
       const primeira = !c[R.campo];
       c[R.campo] = r[R.campo];
       if (r.url) c.youtubeUrl = r.url;
+      if (r.agendadoPara) c.youtubeAgendado = r.agendadoPara;
       const selos = botao.closest('.clipe').querySelector('.clipe-corpo > div');
       if (primeira && selos) { selos.insertAdjacentHTML('beforeend', seloRede(rede, c)); icones(selos); }
       if (r.avisoTelegram) erro('O vídeo foi pro TikTok, mas a legenda não chegou no Telegram: ' + r.avisoTelegram);

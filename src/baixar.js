@@ -154,9 +154,10 @@ async function espiar(url) {
     try { return await espiarUma(url, e.args || []); }
     catch (err) {
       ultimo = err;
-      if (semJeito(err.message)) throw err;
+      if (semJeito(err.message)) { registrarErro(url, 'ler o link: parou em ' + (e.nome || '?'), err); throw err; }
     }
   }
+  registrarErro(url, 'ler o link: ' + tentativas.length + ' tentativas falharam', ultimo);
   throw ultimo || new Error('Nao consegui ler esse link.');
 }
 
@@ -172,7 +173,7 @@ function espiarUma(url, extras) {
     p.stderr.on('data', (d) => { erro += d.toString(); });
     p.on('error', reject);
     p.on('close', (code) => {
-      if (code !== 0) return reject(new Error(mensagemDeErro(erro)));
+      if (code !== 0) return reject(Object.assign(new Error(mensagemDeErro(erro)), { bruto: erro }));
       try {
         const j = JSON.parse(saida);
         resolve({
@@ -195,6 +196,11 @@ function mensagemDeErro(bruto) {
   if (/sign in to confirm|not a bot|cookies/i.test(t)) {
     return 'O YouTube pediu pra confirmar que não é um robô. Abra o YouTube no Firefox, Edge ou Chrome, entre na sua conta e tente de novo: o programa usa esse login só pra baixar, aqui no seu PC. Se não der, baixe o vídeo por fora e use "Arquivo do PC".';
   }
+  // "Video unavailable. This content isn't available, try again later" e o
+  // YouTube segurando pedidos demais do mesmo IP por um tempo - o video existe.
+  // Precisa vir antes do "indisponivel", senao desistia sem tentar outro caminho.
+  if (/try again later/i.test(t)) return 'O YouTube segurou os pedidos daqui por um tempo (bloqueio temporario).';
+  if (/format is not available/i.test(t)) return 'O YouTube nao liberou o formato pedido.';
   if (/video unavailable|not available/i.test(t)) return 'Esse video esta indisponivel.';
   if (/age.?restrict/i.test(t)) return 'Esse video tem restricao de idade.';
   if (/unsupported url|no video/i.test(t)) return 'Nao reconheci esse link como um video.';
@@ -300,6 +306,24 @@ function semJeito(msg) {
   return /privado|so para membros|restricao de idade|indisponivel|nao reconheci|Sem conexao/i.test(String(msg));
 }
 
+/**
+ * Guarda o erro cru num log: a mensagem amigavel some da tela, mas quando um
+ * video especifico nao baixa, o motivo tecnico esta aqui pra investigar.
+ */
+function registrarErro(url, resumo, err) {
+  try {
+    const pastaTrabalho = pastas.trabalho();
+    fs.mkdirSync(pastaTrabalho, { recursive: true });
+    fs.appendFileSync(
+      path.join(pastaTrabalho, 'erros-download.log'),
+      '\n=== ' + new Date().toISOString() + ' ===\n' +
+      'link: ' + url + '\n' + resumo + '\n' +
+      'ultimo erro: ' + ((err && err.bruto) || (err && err.message) || '?') + '\n',
+      'utf8'
+    );
+  } catch (_) { /* log e diagnostico, nao pode derrubar nada */ }
+}
+
 async function baixar(url, opcoes, aoProgredir) {
   opcoes = opcoes || {};
   url = await normalizarUrl(url);
@@ -316,7 +340,10 @@ async function baixar(url, opcoes, aoProgredir) {
       return await tentarBaixar(url, opcoes, aoProgredir, e);
     } catch (err) {
       ultimoErro = err;
-      if (semJeito(err.message)) throw err;   // insistir nao vai mudar nada
+      if (semJeito(err.message)) {            // insistir nao vai mudar nada
+        registrarErro(url, (i + 1) + ' tentativa(s), parou: ' + err.message, err);
+        throw err;
+      }
 
       // Na primeira recusa, atualiza o baixador: quase sempre e isso.
       if (!jaAtualizou && estrategias === ESTRATEGIAS_YOUTUBE) {
@@ -327,20 +354,7 @@ async function baixar(url, opcoes, aoProgredir) {
     }
   }
 
-  // Guarda o erro cru num log: a mensagem amigavel some da tela, mas quando
-  // um video especifico nao baixa, o motivo tecnico esta aqui pra investigar.
-  try {
-    const pastaTrabalho = pastas.trabalho();
-    fs.mkdirSync(pastaTrabalho, { recursive: true });
-    fs.appendFileSync(
-      path.join(pastaTrabalho, 'erros-download.log'),
-      '\n=== ' + new Date().toISOString() + ' ===\n' +
-      'link: ' + url + '\n' +
-      'todas as ' + estrategias.length + ' tentativas falharam\n' +
-      'ultimo erro: ' + ((ultimoErro && ultimoErro.bruto) || (ultimoErro && ultimoErro.message) || '?') + '\n',
-      'utf8'
-    );
-  } catch (_) { /* log e diagnostico, nao pode derrubar nada */ }
+  registrarErro(url, 'todas as ' + estrategias.length + ' tentativas falharam', ultimoErro);
 
   const base = (ultimoErro && ultimoErro.message) || 'O download falhou.';
   throw new Error(base + ' Tentei ' + estrategias.length + ' caminhos diferentes. Baixe o arquivo por fora e use "Arraste um vídeo do seu PC".');
@@ -351,6 +365,10 @@ async function tentarBaixar(url, opcoes, aoProgredir, estrategia) {
   estrategia = estrategia || { args: [] };
   const bin = await garantirYtDlp();
   fs.mkdirSync(pastas.baixados(), { recursive: true });
+  // O yt-dlp so junta imagem + som se achar o ffmpeg, e ele procura no PATH.
+  // Sem achar, baixa os dois pedacos separados (.f399.mp4 sem som + .f251.webm)
+  // e o corte sai mudo. Entao passa o mesmo ffmpeg que o programa usa.
+  const { ffmpeg } = await require('./media').garantirFfmpeg();
 
   const limite = opcoes.limiteAltura === 0 ? null : (opcoes.limiteAltura || 1080);
 
@@ -378,6 +396,8 @@ async function tentarBaixar(url, opcoes, aoProgredir, estrategia) {
       '--concurrent-fragments', '4',
       '--no-part',                       // evita ficar com .part se cair a conexao
       '-f', formato,
+      // so caminho completo: "ffmpeg.exe" solto ja vem do PATH, o yt-dlp acha sozinho
+      ...(path.isAbsolute(ffmpeg) ? ['--ffmpeg-location', ffmpeg] : []),
       '--merge-output-format', 'mp4',
       '--restrict-filenames',            // sem acento e sem espaco: menos dor de cabeca depois
       '-o', modelo,
@@ -449,6 +469,11 @@ async function tentarBaixar(url, opcoes, aoProgredir, estrategia) {
         return reject(e);
       }
 
+      // ".f299.mp4" e um pedaco que o yt-dlp nao juntou (so imagem ou so som):
+      // seguir com ele da corte mudo. Melhor parar e dizer o motivo.
+      if (/\.f\d+\.\w+$/.test(caminho)) {
+        return reject(new Error('O download veio separado (imagem e som em arquivos diferentes) e não consegui juntar: o ffmpeg não foi encontrado. Rode o instalar.bat.'));
+      }
       if (caminho && fs.existsSync(caminho)) return resolve(caminho);
 
       // Rede de seguranca: pega o arquivo de video mais novo da pasta

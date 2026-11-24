@@ -11,6 +11,10 @@ const { URL } = require('url');
 
 // .env opcional (fora do git): hoje so guarda as chaves do envio pro TikTok
 try { process.loadEnvFile(path.join(__dirname, '..', '.env')); } catch (_) {}
+// O atalho instalado poe a pasta do ffmpeg no PATH. Rodando pelo iniciar.bat com
+// FFMPEG_PATH no .env, faz o mesmo: o yt-dlp procura o ffmpeg no PATH pra juntar
+// imagem e som - sem isso o video baixava mudo.
+if (process.env.FFMPEG_PATH) process.env.PATH = path.dirname(process.env.FFMPEG_PATH) + path.delimiter + (process.env.PATH || '');
 
 // Onde gravar (disco/pasta) fica no pastas.js: muda na hora, pelos Ajustes.
 const pastas = require('./pastas');
@@ -949,11 +953,18 @@ const servidor = http.createServer(async (req, res) => {
       const titulo = String(corpo.titulo || '');
       let descricao = String(corpo.legenda || '');
       if (titulo && descricao.startsWith(titulo)) descricao = descricao.slice(titulo.length).trim();
+      // agendar: pega o proximo horario livre (6 por dia) e o YouTube publica nele
+      let publicarEm = null;
+      try { if (corpo.agendar) publicarEm = youtube.reservarHorario(); }
+      catch (e) { return json(res, 400, { erro: e.message }); }
       let feito;
-      try { feito = await youtube.enviar(arquivo, { titulo, descricao, tags: corpo.hashtags }); }
-      catch (e) { return json(res, e.precisaLogin ? 401 : 502, { erro: e.message, precisaLogin: !!e.precisaLogin }); }
-      marcarEnviado(arquivo, { enviadoYouTube: new Date().toISOString(), youtubeUrl: feito.url });
+      try { feito = await youtube.enviar(arquivo, { titulo, descricao, tags: corpo.hashtags, publicarEm }); }
+      catch (e) {
+        if (publicarEm) youtube.liberarHorario(publicarEm);
+        return json(res, e.precisaLogin ? 401 : 502, { erro: e.message, precisaLogin: !!e.precisaLogin });
+      }
       feito.enviadoYouTube = new Date().toISOString();
+      marcarEnviado(arquivo, { enviadoYouTube: feito.enviadoYouTube, youtubeUrl: feito.url, youtubeAgendado: publicarEm });
       return json(res, 200, feito);
     }
 
