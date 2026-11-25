@@ -578,6 +578,7 @@ async function gerarClipes(cortes, ctx) {
     // gancho sem tela (desligado ou escrito a mao): a IA ainda escreve o titulo
     const daIa = await textosEntendidos(c, ganchosUsados, titulosUsados, ctx, referencia);
     if (daIa.titulo) { trocarTitulo(c, daIa.titulo); titulosUsados.add(daIa.titulo.toLowerCase()); }
+    if (daIa.resumo) c.resumoIa = daIa.resumo; // primeira frase da descricao do YouTube
     // O gancho fica guardado no clipe: e o texto que a pessoa vai querer
     // reescrever depois, quando bater o olho no resultado e pensar em algo melhor.
     // ganchoFixo: o gancho escrito a mao pra um trecho marcado, no lugar do gerado

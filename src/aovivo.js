@@ -885,6 +885,8 @@ class SessaoAoVivo {
       tamanhoMb: Math.round((fs.statSync(mp4).size / 1048576) * 10) / 10,
       segundosPraFicarPronto: Math.round((Date.now() - t0) / 100) / 10,
     };
+    // mesmo formato do pipeline: o envio pro YouTube tira dai o streamer (descricao e tags)
+    clipe.contextoJogo = { texto: this.titulo || '', canal: this.nomeCanal || this.canal || '' };
     // titulo com SEO na hora (streamer + jogo + o que aconteceu), sem esperar a
     // fala: assim o clipe ja sai pronto pra postar. Melhora quando a fala chega.
     try {
@@ -1022,6 +1024,7 @@ class SessaoAoVivo {
         fala: clipe.texto, antes, streamer: info && info.streamer, jogo: info && info.jogo,
         evitar: new Set(), evitarTitulos,
       });
+      if (r.resumo) clipe.resumoIa = r.resumo;
       if (!r.titulo) return;
       if (this.titulosUsados) this.titulosUsados.delete(String(clipe.titulo).toLowerCase());
       trocarTitulo(clipe, r.titulo);

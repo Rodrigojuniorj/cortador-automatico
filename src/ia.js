@@ -59,9 +59,14 @@ const SISTEMA = [
   '- Diferente do gancho: o gancho prende na tela, o título diz do que é o vídeo.',
   '- Sem emoji, sem hashtag, sem aspas, sem palavrão.',
   '',
-  'Responda em exatamente duas linhas, sem explicação:',
+  'Por fim, o RESUMO: a primeira frase da descrição do YouTube, que o algoritmo lê pra saber do que',
+  'é o vídeo. Uma frase de 8 a 25 palavras que conta o que acontece no trecho, com o nome do streamer',
+  'e do jogo. Sem emoji, sem hashtag, sem inventar.',
+  '',
+  'Responda em exatamente três linhas, sem explicação:',
   'GANCHO: <o gancho escolhido>',
   'TITULO: <o título>',
+  'RESUMO: <a frase>',
   'Se a fala não deixar claro o que acontece, escreva NADA no lugar do texto.',
 ].join('\n');
 
@@ -69,10 +74,10 @@ const SISTEMA = [
  * Gancho de tela e titulo do post, numa chamada so.
  * @param {object} p { fala, antes, streamer, jogo, evitar: Set, evitarTitulos: Set,
  *                     referencia: { bons, ruins } | null }
- * @returns {Promise<{gancho: string|null, titulo: string|null}>} null = usar o de regra
+ * @returns {Promise<{gancho, titulo, resumo: string|null}>} null = usar o de regra
  */
 async function textosDaIa(p) {
-  const nada = { gancho: null, titulo: null };
+  const nada = { gancho: null, titulo: null, resumo: null };
   if (!ativo()) return nada;
   const fala = String(p.fala || '').trim();
   if (fala.split(/\s+/).length < 4) return nada; // sem fala nao ha o que entender
@@ -123,7 +128,19 @@ function lerResposta(texto, evitarTitulos) {
   return {
     gancho: limparGancho(linha('GANCHO')),
     titulo: titulo && !(evitarTitulos && evitarTitulos.has(titulo.toLowerCase())) ? titulo : null,
+    resumo: limparResumo(linha('RESUMO')),
   };
+}
+
+function limparResumo(texto) {
+  const t = String(texto || '')
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '')
+    .replace(/["“”«»*]/g, '')
+    .replace(/#\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t || /^nada\.?$/i.test(t) || t.split(' ').length < 5 || t.length > 250) return null;
+  return /[.!?]$/.test(t) ? t : t + '.';
 }
 
 function limparTitulo(texto) {
@@ -153,4 +170,4 @@ function limparGancho(texto) {
   return t;
 }
 
-module.exports = { ativo, textosDaIa, lerResposta, limparGancho, limparTitulo, MODELO };
+module.exports = { ativo, textosDaIa, lerResposta, limparGancho, limparTitulo, limparResumo, MODELO };

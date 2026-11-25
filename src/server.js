@@ -31,6 +31,7 @@ const tiktok = require('./tiktok');
 const telegram = require('./telegram');
 const youtube = require('./youtube');
 const metricas = require('./metricas');
+const { infoDeJogo } = require('./copy');
 
 // Um erro solto em algum canto (um ffmpeg que sumiu, uma conexao que caiu)
 // nao pode derrubar o programa inteiro: a janela ficaria dando "Failed to fetch"
@@ -365,6 +366,18 @@ function dentroDaSaida(caminho) {
  * Grava no clipe (sessao.json e relatorio.json da pasta dele) quando ele foi
  * pro TikTok/YouTube, pro cartao mostrar o selo mesmo depois de fechar o programa.
  */
+/** O clipe gravado no sessao.json/relatorio.json da pasta, ou null. */
+function lerClipe(arquivo) {
+  for (const nome of ['sessao.json', 'relatorio.json']) {
+    try {
+      const dados = JSON.parse(fs.readFileSync(path.join(path.dirname(arquivo), nome), 'utf8'));
+      const c = (dados.clipes || []).find((x) => (x.arquivo && path.resolve(x.arquivo) === arquivo) || x.nomeArquivo === path.basename(arquivo));
+      if (c) return c;
+    } catch (_) { /* projeto sem esse arquivo */ }
+  }
+  return null;
+}
+
 function marcarEnviado(arquivo, campos) {
   for (const nome of ['sessao.json', 'relatorio.json']) {
     const f = path.join(path.dirname(arquivo), nome);
@@ -959,7 +972,12 @@ const servidor = http.createServer(async (req, res) => {
       try { if (corpo.agendar) publicarEm = youtube.reservarHorario(); }
       catch (e) { return json(res, 400, { erro: e.message }); }
       let feito;
-      try { feito = await youtube.enviar(arquivo, { titulo, descricao, tags: corpo.hashtags, publicarEm }); }
+      const clipe = lerClipe(arquivo) || {};
+      const streamer = clipe.contextoJogo ? infoDeJogo(clipe, clipe.contextoJogo) : null;
+      const post = youtube.montarPost({
+        titulo, descricao, hashtags: corpo.hashtags, resumo: clipe.resumoIa, streamer: streamer && streamer.streamer,
+      });
+      try { feito = await youtube.enviar(arquivo, Object.assign(post, { publicarEm })); }
       catch (e) {
         if (publicarEm) youtube.liberarHorario(publicarEm);
         return json(res, e.precisaLogin ? 401 : 502, { erro: e.message, precisaLogin: !!e.precisaLogin });

@@ -145,10 +145,55 @@ async function erroDoGoogle(r) {
 
 // Titulo do YouTube: ate 100 caracteres e sem < > (o YouTube recusa). #shorts no
 // fim: o YouTube ja reconhece Short pelo formato, mas deixa explicito pra busca.
+// Em CAIXA ALTA: no feed de Shorts so aparecem as 3-4 primeiras palavras, e em
+// canal novo maiuscula chama mais (video de referencia RunnyIA, 1M views).
 function tituloOk(t) {
-  let titulo = String(t || 'Corte').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();
+  let titulo = String(t || 'Corte').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().toUpperCase().replace(/#SHORTS\b/g, '#shorts');
   if (!/#shorts\b/i.test(titulo)) titulo = titulo.slice(0, 100 - ' #shorts'.length).trim() + ' #shorts';
   return titulo.slice(0, 100);
+}
+
+// Palavras de GTA 6 com mais busca no Brasil (vidIQ, 25/11/2026). Descricao leva
+// 5-6 palavras-chave e as tags vao em quantidade - o YouTube usa as duas pra
+// saber pra quem entregar.
+const CHAVES_GTA = ['gta 6', 'gta vi', 'gta 6 gameplay', 'gta 6 pc', 'gta 6 mapa'];
+const TAGS_GTA = ['gta 6', 'gta vi', 'gta6', 'gta', 'gta 6 gameplay', 'gta 6 pc', 'gta 6 ps5', 'gta 6 xbox series s',
+  'gta 6 mapa', 'gta 6 lucia', 'gta 6 leonida', 'gta 6 vice city', 'jason gta 6', 'rockstar games',
+  'grand theft auto 6', 'cortes gta 6', 'gta 6 brasil', 'gta 6 pt br'];
+// hashtag de alcance do TikTok: no YouTube, muita hashtag em canal novo parece spam
+const SO_TIKTOK = new Set(['fyp', 'viral', 'foryou', 'paravoce', 'cortes']);
+const LIMITE_TAGS = 450; // o YouTube aceita 500 caracteres somando todas
+
+/**
+ * Titulo, descricao e tags do YouTube a partir da copy do clipe.
+ * Descricao: resumo da IA primeiro (o algoritmo le a abertura), o texto do post,
+ * as palavras-chave separadas por virgula e so 3 hashtags.
+ * @param {object} p { titulo, descricao, hashtags, streamer, resumo }
+ */
+function montarPost(p) {
+  const hashtags = (p.hashtags || []).map((h) => String(h).replace(/^#/, '').toLowerCase()).filter(Boolean);
+  const gta = hashtags.some((h) => h.startsWith('gta'));
+  const streamer = String(p.streamer || '').trim().toLowerCase();
+  const nicho = hashtags.filter((h) => !SO_TIKTOK.has(h));
+  const unicas = (lista) => [...new Set(lista.filter(Boolean))];
+
+  const chaves = unicas((gta ? CHAVES_GTA : nicho.slice(0, 5)).concat(streamer ? [streamer + (gta ? ' gta 6' : '')] : []));
+  const corpo = String(p.descricao || '').split('\n').filter((l) => !/^\s*(#\S+\s*)+$/.test(l)).join('\n').trim();
+  const marcas = unicas([gta ? 'gta6' : nicho[0], streamer.replace(/[^a-z0-9]/g, ''), 'shorts']).map((h) => '#' + h).join(' ');
+  const descricao = [p.resumo, corpo, chaves.length ? 'Palavras-chave: ' + chaves.join(', ') : '', marcas].filter(Boolean).join('\n\n');
+
+  const candidatas = unicas((gta ? TAGS_GTA : []).concat(
+    streamer ? [streamer, 'cortes ' + streamer, streamer + ' ao vivo'].concat(gta ? [streamer + ' gta 6'] : []) : [],
+    nicho, ['cortes de live', 'shorts']));
+  const tags = [];
+  let usado = 0;
+  for (const t of candidatas) {
+    const custo = t.length + (t.includes(' ') ? 2 : 0) + 1; // o YouTube conta aspas em tag com espaco
+    if (usado + custo > LIMITE_TAGS) continue;
+    tags.push(t);
+    usado += custo;
+  }
+  return { titulo: p.titulo, descricao, tags };
 }
 
 /**
@@ -246,4 +291,4 @@ function liberarHorario(iso) {
   gravarAgenda(lerAgenda().filter((t) => t !== iso));
 }
 
-module.exports = { ativo, estado, entrar, callback, enviar, reservarHorario, liberarHorario, tokenValido, erroDoGoogle, HORARIOS };
+module.exports = { ativo, estado, entrar, callback, enviar, montarPost, reservarHorario, liberarHorario, tokenValido, erroDoGoogle, HORARIOS };
