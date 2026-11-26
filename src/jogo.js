@@ -123,17 +123,20 @@ const TITULOS = {
   risada: ['{S} não aguentou de rir nessa{noJ} 😂', '{S} chorou de rir com isso{noJ} 😂', 'Ninguém segurou a risada nessa live do {S}{noJ} 😂'],
   jogada: ['{S} fez a jogada mais insana da live{noJ} 🔥', 'Que jogada do {S}{noJ} 🔥', '{S} amassou nessa{noJ} 🔥'],
   ruim: ['Deu muito ruim pro {S}{noJ} 😭', '{S} não esperava esse final{noJ} 😭', 'O {S} se ferrou nessa{noJ} 😭'],
-  susto: ['{S} não acreditou no que aconteceu{noJ} 😱', '{S} surtou com isso{noJ} 😱', 'O momento mais insano da live do {S}{noJ} 😱', '{S} ficou sem reação{noJ} 😳', 'Olha a reação do {S} nessa{noJ} 😱', '{S} gritou demais nessa{noJ} 😱', 'Ninguém esperava isso na live do {S}{noJ} 🤯'],
-  chat: ['O chat foi à loucura com o {S}{noJ} 🤯', 'Ninguém esperava isso na live do {S}{noJ} 🤯'],
-  generico: ['O momento mais insano da live do {S}{noJ} 😱', '{S} não esperava por isso{noJ} 👀', 'Olha o que aconteceu na live do {S}{noJ} 👀', 'Esse momento do {S}{noJ} foi demais 🔥', 'Espera o final dessa do {S}{noJ} 👀'],
+  // "susto" so quer dizer exclamacao ("caraca", "nossa") ou voz alta - nao prova
+  // susto, surto nem choque. Entao os modelos nao afirmam o que ele sentiu
+  // (ja saiu "QUE SUSTO FOI ESSE?" num trecho em que ele reclamava da internet).
+  susto: ['Olha a reação do {S} nessa{noJ}', 'Olha o que aconteceu na live do {S}{noJ}', 'Esse momento da live do {S}{noJ}'],
+  chat: ['O chat foi à loucura com o {S}{noJ} 🤯', 'O chat reagiu a essa do {S}{noJ}'],
+  generico: ['Olha o que aconteceu na live do {S}{noJ}', 'Esse momento da live do {S}{noJ}', 'Olha essa do {S}{noJ}'],
 };
 const TITULOS_SEM_STREAMER = {
   risada: ['Ninguém aguentou de rir nessa{noJ} 😂', 'A risada mais sincera da live{noJ} 😂'],
   jogada: ['A jogada mais insana da live{noJ} 🔥', 'Que jogada foi essa{noJ}? 🔥'],
   ruim: ['Deu muito ruim nessa{noJ} 😭', 'Ninguém esperava esse final{noJ} 😭'],
-  susto: ['Ninguém acreditou no que aconteceu{noJ} 😱', 'O momento mais insano da live{noJ} 😱', 'Olha essa reação{noJ} 😱', 'Ninguém esperava isso{noJ} 🤯'],
+  susto: ['Olha essa reação{noJ}', 'Olha o que aconteceu nessa live{noJ}'],
   chat: ['O chat foi à loucura com isso{noJ} 🤯'],
-  generico: ['O momento mais insano da live{noJ} 😱', 'Ninguém esperava por isso{noJ} 👀'],
+  generico: ['Olha o que aconteceu nessa live{noJ}', 'Esse momento da live{noJ}'],
 };
 // gancho queimado na tela (curto; o emoji some no video). Sem "ESPERA O FINAL":
 // o corte agora abre no lance e termina logo depois da reacao - nao ha final
@@ -142,9 +145,9 @@ const GANCHOS = {
   risada: ['NÃO AGUENTEI DE RIR', 'ELE CHOROU DE RIR', 'TENTA NÃO RIR', 'ELE PERDEU O FÔLEGO DE RIR'],
   jogada: ['QUE JOGADA FOI ESSA?', 'OLHA O QUE ELE FEZ', 'ESSA FOI INSANA', 'ELE FEZ ISSO MESMO?'],
   ruim: ['DEU MUITO RUIM', 'ELE NÃO ESPERAVA ESSA', 'NADA DEU CERTO', 'O PLANO DEU ERRADO'],
-  susto: ['ELE NÃO ESPERAVA ISSO', 'OLHA O QUE ACONTECEU', 'NINGUÉM ACREDITOU', 'QUE SUSTO FOI ESSE?'],
-  chat: ['O CHAT FOI À LOUCURA', 'NINGUÉM ESPERAVA ISSO', 'O CHAT NÃO ACREDITOU'],
-  generico: ['OLHA O QUE ACONTECEU', 'VOCÊ NÃO VAI ACREDITAR', 'ELE NÃO ESPERAVA ISSO', 'QUE MOMENTO FOI ESSE?'],
+  susto: ['OLHA O QUE ACONTECEU', 'OLHA A REAÇÃO DELE', 'REPARA NISSO'],
+  chat: ['O CHAT FOI À LOUCURA', 'OLHA O CHAT NESSA'],
+  generico: ['OLHA O QUE ACONTECEU', 'REPARA NISSO', 'QUE MOMENTO FOI ESSE?'],
 };
 
 function escolher(lista, semente) {
