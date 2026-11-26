@@ -470,6 +470,7 @@
   .clipe-acoes .btn { flex: 1; }
   body:not(.tiktok) .btn-tiktok { display: none; }
   body:not(.youtube) .btn-youtube { display: none; }
+  body:not(.telegram) .btn-telegram { display: none; }
   .clipe-det { font-size: var(--t6); color: var(--texto2); line-height: 1.55; margin-top: 9px; }
   .clipe-det .bloco + .bloco { margin-top: 9px; }
   .alt {
@@ -483,6 +484,7 @@
   .selo.editado { background: rgba(56,189,248,.14); color: var(--azul); }
   .selo.tiktok { background: rgba(37,244,238,.12); color: #25f4ee; }
   .selo.youtube { background: rgba(255,59,59,.14); color: #ff6b6b; text-decoration: none; }
+  .selo.telegram { background: rgba(42,171,238,.14); color: #2aabee; }
   .selo.leva { background: rgba(74,222,128,.12); color: var(--verde); }
   .clipe.novo { border-color: var(--marca); box-shadow: 0 0 0 1px var(--marca), 0 16px 40px -20px var(--marca-brilho); }
 
@@ -3252,6 +3254,7 @@
           (c.editado ? '<span class="selo editado"><i data-lucide="pencil" class="i"></i> Editado</span>' : '') +
           (c.enviadoTikTok ? seloRede('tiktok', c) : '') +
           (c.enviadoYouTube ? seloRede('youtube', c) : '') +
+          (c.enviadoTelegram ? seloRede('telegram', c) : '') +
           (c.leva > 1 ? '<span class="selo leva"><i data-lucide="layers" class="i"></i> ' + c.leva + 'ª leva</span>' : '') +
           (c.manual ? '<span class="selo manual"><i data-lucide="film" class="i"></i> Trecho escolhido</span>' : '') +
           (c.origem ? '<span class="selo vivo"><i data-lucide="' + (c.origem === 'manual' ? 'hand' : 'zap') + '" class="i"></i> ' +
@@ -3267,6 +3270,7 @@
           '<button class="btn p" data-copiar="' + esc(c.legendaPost || c.titulo) + '" title="Título e hashtags, pronto pra colar no post"><i data-lucide="copy" class="i"></i> Legenda</button>' +
           '<button class="btn p btn-tiktok" data-rede="tiktok" title="Manda pro TikTok como rascunho: no app você cola a legenda e publica"><i data-lucide="send" class="i"></i> TikTok</button>' +
           '<button class="btn p btn-youtube" data-rede="youtube" title="Posta no YouTube como Short, já com título, descrição e hashtags"><i data-lucide="square-play" class="i"></i> YouTube</button>' +
+          '<button class="btn p btn-telegram" data-rede="telegram" title="Manda o vídeo pro seu Telegram com título, descrição e a música sugerida, pra postar no app do YouTube com música"><i data-lucide="smartphone" class="i"></i> Telegram</button>' +
           editar +
         '</div>' +
 
@@ -3308,8 +3312,10 @@
   const REDES = {
     tiktok: { nome: 'TikTok', campo: 'enviadoTikTok', feito: (r) => (r.telegram ? 'TikTok + Telegram!' : 'No app do TikTok!') },
     youtube: { nome: 'YouTube', campo: 'enviadoYouTube', feito: (r) => (r.agendadoPara ? 'Agendado!' : r.privacidade === 'private' ? 'Subiu (privado)' : 'No YouTube!') },
+    // pra postar no YouTube pelo celular com musica (a API nao poe musica)
+    telegram: { nome: 'Telegram', campo: 'enviadoTelegram', feito: () => 'No Telegram!' },
   };
-  const estadoRede = { tiktok: {}, youtube: {} };
+  const estadoRede = { tiktok: {}, youtube: {}, telegram: {} };
   const lerRede = (rede) => fetch('/api/' + rede).then((x) => x.json()).then((e) => {
     estadoRede[rede] = e;
     document.body.classList.toggle(rede, !!e.ativo);
@@ -3339,7 +3345,7 @@
       return '<a class="selo agendado" href="' + esc(c.youtubeUrl || '#') + '" target="_blank" rel="noopener" title="O YouTube publica sozinho nesse horário">' +
         '<i data-lucide="calendar-clock" class="i"></i> ' + esc(dataCurta(c.youtubeAgendado)) + '</a>';
     }
-    const dica = esc('Mandado pro ' + nome + ' em ' + dataCurta(c[REDES[rede].campo]));
+    const dica = esc('Mandado pro ' + nome + ' em ' + dataCurta(c[REDES[rede].campo]) + (rede === 'telegram' && c.musicaSugerida ? ' · música: ' + c.musicaSugerida : ''));
     const dentro = '<i data-lucide="check-check" class="i"></i> No ' + nome;
     // no YouTube o selo abre o video
     return rede === 'youtube' && c.youtubeUrl
@@ -3347,7 +3353,7 @@
       : '<span class="selo ' + rede + '" title="' + dica + '">' + dentro + '</span>';
   }
 
-  // ---- varios clipes de uma vez: agenda no YouTube nos melhores horarios (6 por dia)
+  // ---- varios clipes de uma vez: agenda no YouTube nos melhores horarios (5 por dia)
   const selecionados = new Map(); // arquivo -> { c, div }
   const barraSel = document.createElement('div');
   barraSel.id = 'barraSel';
@@ -3378,6 +3384,9 @@
     if (!lista.length || this.disabled) return;
     const jaFoi = lista.filter(({ c }) => c.enviadoYouTube).length;
     if (jaFoi && !confirm(jaFoi + (jaFoi === 1 ? ' clipe já foi' : ' clipes já foram') + ' pro YouTube. Agendar de novo mesmo assim?')) return;
+    // esses vao pro YouTube pelo celular, com musica: agendar tambem duplicaria no canal
+    const peloCelular = lista.filter(({ c }) => c.enviadoTelegram && !c.enviadoYouTube).length;
+    if (peloCelular && !confirm(peloCelular + (peloCelular === 1 ? ' clipe foi' : ' clipes foram') + ' pro Telegram pra postar pelo celular. Agendar no YouTube também (vai sair duas vezes)?')) return;
     if (!estadoRede.youtube.conectado) { erro('Conecte o YouTube primeiro: clique em YouTube em qualquer clipe.'); return; }
 
     const btn = this;
@@ -3437,6 +3446,7 @@
       c[R.campo] = r[R.campo];
       if (r.url) c.youtubeUrl = r.url;
       if (r.agendadoPara) c.youtubeAgendado = r.agendadoPara;
+      if (r.musicaSugerida) c.musicaSugerida = r.musicaSugerida;
       const selos = botao.closest('.clipe').querySelector('.clipe-corpo > div');
       if (primeira && selos) { selos.insertAdjacentHTML('beforeend', seloRede(rede, c)); icones(selos); }
       if (r.avisoTelegram) erro('O vídeo foi pro TikTok, mas a legenda não chegou no Telegram: ' + r.avisoTelegram);

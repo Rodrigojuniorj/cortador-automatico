@@ -193,7 +193,7 @@ function montarPost(p) {
     tags.push(t);
     usado += custo;
   }
-  return { titulo: p.titulo, descricao, tags };
+  return { titulo: tituloOk(p.titulo), descricao, tags };
 }
 
 /**
@@ -251,12 +251,10 @@ async function enviar(arquivo, post) {
 
 // ---------------------------------------------------------------- agenda
 
-// Horarios de Brasilia, 6 por dia. Fontes (2026, blogs de ferramentas, sem
-// dado oficial): pico de Shorts no Brasil 4h-7h (Trendreport, 47 mil videos),
-// almoco 12h-14h, e noite 19h-22h na America Latina. Espacados pra um corte
-// nao concorrer com o outro.
+// Horarios de Brasilia, 5 por dia, escolhidos pelo dono do canal em 25/11/2026
+// (antes eram 7, 12, 14, 17, 19 e 21h, tirados de blogs de ferramentas).
 // shortcut: horario fixo e no fuso do PC; trocar pelo horario de pico do proprio canal quando der pra ler o YouTube Analytics
-const HORARIOS = [[7, 0], [12, 0], [14, 0], [17, 0], [19, 0], [21, 0]];
+const HORARIOS = [[8, 0], [9, 0], [10, 0], [12, 0], [16, 0]];
 const FOLGA_MS = 20 * 60 * 1000; // nao agenda pra daqui a menos de 20 min
 
 const arquivoAgenda = () => path.join(path.dirname(pastas.arquivoConfig()), 'youtube-agenda.json');

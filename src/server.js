@@ -378,6 +378,20 @@ function lerClipe(arquivo) {
   return null;
 }
 
+/** Titulo, descricao e tags do YouTube pro clipe (envio direto ou pelo Telegram). */
+function postDoYouTube(corpo, arquivo) {
+  // a legenda do post comeca com o titulo: no YouTube o titulo vai separado
+  const titulo = String(corpo.titulo || '');
+  let descricao = String(corpo.legenda || '');
+  if (titulo && descricao.startsWith(titulo)) descricao = descricao.slice(titulo.length).trim();
+  const clipe = lerClipe(arquivo) || {};
+  const info = clipe.contextoJogo ? infoDeJogo(clipe, clipe.contextoJogo) : null;
+  const post = youtube.montarPost({
+    titulo, descricao, hashtags: corpo.hashtags, resumo: clipe.resumoIa, streamer: info && info.streamer,
+  });
+  return { post, clipe };
+}
+
 function marcarEnviado(arquivo, campos) {
   for (const nome of ['sessao.json', 'relatorio.json']) {
     const f = path.join(path.dirname(arquivo), nome);
@@ -951,6 +965,25 @@ const servidor = http.createServer(async (req, res) => {
       return json(res, 200, feito);
     }
 
+    // ------------------------------------------- Telegram: postar no YouTube pelo celular
+    // A API do YouTube nao poe musica em alta: o clipe vai pro Telegram com titulo,
+    // descricao e a musica sugerida, e a pessoa posta pelo app. O selo separa esses
+    // dos agendados, pra comparar as views com e sem musica.
+    if (rota === '/api/telegram') {
+      return json(res, 200, { ativo: telegram.ativo(), conectado: telegram.ativo() });
+    }
+    if (rota === '/api/telegram/enviar' && req.method === 'POST') {
+      const corpo = await lerCorpo(req);
+      const arquivo = dentroDaSaida(corpo.arquivo);
+      if (!arquivo || !fs.existsSync(arquivo)) return json(res, 404, { erro: 'Não achei esse clipe na pasta de cortes.' });
+      const { post, clipe } = postDoYouTube(corpo, arquivo);
+      const musica = telegram.musicaDoClipe(clipe.numero);
+      try { await telegram.enviarParaYouTube(arquivo, post, musica); }
+      catch (e) { return json(res, 502, { erro: e.message }); }
+      const feito = marcarEnviado(arquivo, { enviadoTelegram: new Date().toISOString(), musicaSugerida: musica.sugerida });
+      return json(res, 200, Object.assign({ ok: true }, feito));
+    }
+
     // ---------------------------------------------------------- YouTube (so com as chaves no .env)
     if (rota === '/api/youtube') {
       return json(res, 200, youtube.estado());
@@ -963,20 +996,12 @@ const servidor = http.createServer(async (req, res) => {
       const corpo = await lerCorpo(req);
       const arquivo = dentroDaSaida(corpo.arquivo);
       if (!arquivo || !fs.existsSync(arquivo)) return json(res, 404, { erro: 'Não achei esse clipe na pasta de cortes.' });
-      // a legenda do post comeca com o titulo: no YouTube o titulo vai separado
-      const titulo = String(corpo.titulo || '');
-      let descricao = String(corpo.legenda || '');
-      if (titulo && descricao.startsWith(titulo)) descricao = descricao.slice(titulo.length).trim();
-      // agendar: pega o proximo horario livre (6 por dia) e o YouTube publica nele
+      // agendar: pega o proximo horario livre (5 por dia) e o YouTube publica nele
       let publicarEm = null;
       try { if (corpo.agendar) publicarEm = youtube.reservarHorario(); }
       catch (e) { return json(res, 400, { erro: e.message }); }
       let feito;
-      const clipe = lerClipe(arquivo) || {};
-      const streamer = clipe.contextoJogo ? infoDeJogo(clipe, clipe.contextoJogo) : null;
-      const post = youtube.montarPost({
-        titulo, descricao, hashtags: corpo.hashtags, resumo: clipe.resumoIa, streamer: streamer && streamer.streamer,
-      });
+      const { post } = postDoYouTube(corpo, arquivo);
       try { feito = await youtube.enviar(arquivo, Object.assign(post, { publicarEm })); }
       catch (e) {
         if (publicarEm) youtube.liberarHorario(publicarEm);
